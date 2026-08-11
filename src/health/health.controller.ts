@@ -1,0 +1,25 @@
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { DynamoDbService } from '../dynamodb/dynamodb.service';
+
+@ApiTags('health')
+@Controller('health')
+export class HealthController {
+  constructor(private readonly dynamoDbService: DynamoDbService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Check NestJS and LocalStack DynamoDB connectivity' })
+  @ApiResponse({ status: 200, description: 'DynamoDB is reachable.' })
+  @ApiResponse({ status: 503, description: 'DynamoDB is unreachable.' })
+  async getHealth(): Promise<{ status: 'ok'; dynamodb: 'ok' }> {
+    try {
+      await this.dynamoDbService.checkConnection();
+      return { status: 'ok', dynamodb: 'ok' };
+    } catch {
+      throw new ServiceUnavailableException({
+        status: 'unavailable',
+        dynamodb: 'unavailable',
+      });
+    }
+  }
+}
