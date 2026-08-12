@@ -17,19 +17,19 @@ Swagger: <http://localhost:8000/api>
 
 ## Endpoints hiện có
 
-| Method | Endpoint | Mục đích |
-| --- | --- | --- |
-| `GET` | `/health` | Xác minh NestJS kết nối được LocalStack DynamoDB |
-| `POST` | `/products` | Tạo Product với giá VND integer |
-| `GET` | `/products` | Liệt kê catalogue bằng DynamoDB `Scan` |
-| `GET` | `/products/{productId}` | Lấy một Product theo primary key |
-| `PATCH` | `/products/{productId}` | Cập nhật một hay nhiều trường Product |
-| `DELETE` | `/products/{productId}` | Xoá Product |
-| `POST` | `/categories` | Tạo Category với stable slug, ví dụ `electronics` |
-| `GET` | `/categories` | Liệt kê Categories |
-| `GET` | `/categories/{categoryId}` | Lấy một Category |
-| `PATCH` | `/categories/{categoryId}` | Cập nhật tên hoặc mô tả Category |
-| `DELETE` | `/categories/{categoryId}` | Xoá Category; không cascade sang Products |
+| Method   | Endpoint                   | Mục đích                                          |
+| -------- | -------------------------- | ------------------------------------------------- |
+| `GET`    | `/health`                  | Xác minh NestJS kết nối được LocalStack DynamoDB  |
+| `POST`   | `/products`                | Tạo Product với giá VND integer                   |
+| `GET`    | `/products`                | Liệt kê catalogue bằng DynamoDB `Scan`            |
+| `GET`    | `/products/{productId}`    | Lấy một Product theo primary key                  |
+| `PATCH`  | `/products/{productId}`    | Cập nhật một hay nhiều trường Product             |
+| `DELETE` | `/products/{productId}`    | Xoá Product                                       |
+| `POST`   | `/categories`              | Tạo Category với stable slug, ví dụ `electronics` |
+| `GET`    | `/categories`              | Liệt kê Categories                                |
+| `GET`    | `/categories/{categoryId}` | Lấy một Category                                  |
+| `PATCH`  | `/categories/{categoryId}` | Cập nhật tên hoặc mô tả Category                  |
+| `DELETE` | `/categories/{categoryId}` | Xoá Category; không cascade sang Products         |
 
 `GET /products` chưa có filter, search, sort hay pagination. Đây là giới hạn
 có chủ đích để học `Scan` trước khi thiết kế GSI/`Query` ở các unit tiếp theo.

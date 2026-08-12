@@ -1,36 +1,42 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PageSize } from './pagination-query.dto';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
+import { PageSize } from './pagination-query.dto'
 
-export type PaginationResource = 'products' | 'categories';
-export type CursorKey = Record<string, unknown> | null;
+export type PaginationResource = 'products' | 'categories'
+export type CursorKey = Record<string, unknown> | null
+export type CursorScope = Record<string, string>
 
 export interface PaginationState {
-  limit: PageSize;
-  startKey: CursorKey;
-  history: CursorKey[];
+  limit: PageSize
+  startKey: CursorKey
+  history: CursorKey[]
+  scope: CursorScope
 }
 
 export interface PaginatedResponse<T> {
-  items: T[];
-  previousCursor: string | null;
-  nextCursor: string | null;
-  limit: PageSize;
-  currentPage: number;
+  items: T[]
+  previousCursor: string | null
+  nextCursor: string | null
+  limit: PageSize
+  currentPage: number
+  scannedCount?: number
 }
 
 export class PaginatedResponseDto<T> {
   @ApiProperty({ isArray: true })
-  items!: T[];
+  items!: T[]
 
   @ApiPropertyOptional({ nullable: true })
-  previousCursor!: string | null;
+  previousCursor!: string | null
 
   @ApiPropertyOptional({ nullable: true })
-  nextCursor!: string | null;
+  nextCursor!: string | null
 
   @ApiProperty({ example: 10 })
-  limit!: number;
+  limit!: number
 
   @ApiProperty({ example: 1 })
-  currentPage!: number;
+  currentPage!: number
+
+  @ApiPropertyOptional({ example: 25 })
+  scannedCount?: number
 }

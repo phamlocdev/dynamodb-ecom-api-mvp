@@ -1,18 +1,18 @@
-import 'dotenv/config';
+import 'dotenv/config'
 import {
   CreateTableCommand,
   DescribeTableCommand,
   TableDescription,
   waitUntilTableExists,
-} from '@aws-sdk/client-dynamodb';
-import { createDynamoDbClient } from '../dynamodb/dynamodb.config';
-import { getTableDefinitions, TableDefinition } from '../dynamodb/table-definitions';
+} from '@aws-sdk/client-dynamodb'
+import { createDynamoDbClient } from '../dynamodb/dynamodb.config'
+import { getTableDefinitions, TableDefinition } from '../dynamodb/table-definitions'
 
 async function main(): Promise<void> {
-  const client = createDynamoDbClient();
+  const client = createDynamoDbClient()
 
   for (const definition of getTableDefinitions()) {
-    await ensureTable(client, definition);
+    await ensureTable(client, definition)
   }
 }
 
@@ -23,13 +23,13 @@ async function ensureTable(
   try {
     const response = await client.send(
       new DescribeTableCommand({ TableName: definition.tableName }),
-    );
-    assertCompatibleTable(response.Table, definition);
-    console.log(`Table ${definition.tableName} already exists and has the expected schema.`);
-    return;
+    )
+    assertCompatibleTable(response.Table, definition)
+    console.log(`Table ${definition.tableName} already exists and has the expected schema.`)
+    return
   } catch (error) {
     if (!isResourceNotFound(error)) {
-      throw error;
+      throw error
     }
   }
 
@@ -40,15 +40,15 @@ async function ensureTable(
       KeySchema: definition.keySchema,
       BillingMode: definition.billingMode,
     }),
-  );
+  )
   const waiter = await waitUntilTableExists(
     { client, maxWaitTime: 30 },
     { TableName: definition.tableName },
-  );
+  )
   if (waiter.state !== 'SUCCESS') {
-    throw new Error(`Table ${definition.tableName} was not ready after 30 seconds.`);
+    throw new Error(`Table ${definition.tableName} was not ready after 30 seconds.`)
   }
-  console.log(`Created table ${definition.tableName}.`);
+  console.log(`Created table ${definition.tableName}.`)
 }
 
 function assertCompatibleTable(
@@ -62,19 +62,19 @@ function assertCompatibleTable(
         (actual) =>
           actual.AttributeName === expected.AttributeName && actual.KeyType === expected.KeyType,
       ),
-    );
+    )
   const hasExpectedAttributeDefinitions = definition.attributeDefinitions.every((expected) =>
     table?.AttributeDefinitions?.some(
       (actual) =>
         actual.AttributeName === expected.AttributeName &&
         actual.AttributeType === expected.AttributeType,
     ),
-  );
+  )
 
   if (!hasExpectedKeySchema || !hasExpectedAttributeDefinitions) {
     throw new Error(
       `Table ${definition.tableName} exists but its key schema is incompatible. Choose another table name or reset LocalStack data.`,
-    );
+    )
   }
 }
 
@@ -84,10 +84,10 @@ function isResourceNotFound(error: unknown): boolean {
     error !== null &&
     'name' in error &&
     error.name === 'ResourceNotFoundException'
-  );
+  )
 }
 
 void main().catch((error: unknown) => {
-  console.error('Failed to set up DynamoDB tables.', error);
-  process.exitCode = 1;
-});
+  console.error('Failed to set up DynamoDB tables.', error)
+  process.exitCode = 1
+})

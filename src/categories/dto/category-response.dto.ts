@@ -1,24 +1,24 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PaginatedResponseDto } from '../../pagination/pagination.types';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
+import { PaginatedResponseDto } from '../../pagination/pagination.types'
 
 export class CategoryResponseDto {
   @ApiProperty({ example: 'electronics' })
-  categoryId!: string;
+  categoryId!: string
 
   @ApiProperty({ example: 'Thiết bị điện tử' })
-  name!: string;
+  name!: string
 
   @ApiPropertyOptional({ example: 'Thiết bị công nghệ và phụ kiện.' })
-  description?: string;
+  description?: string
 
   @ApiProperty({ format: 'date-time' })
-  createdAt!: string;
+  createdAt!: string
 
   @ApiProperty({ format: 'date-time' })
-  updatedAt!: string;
+  updatedAt!: string
 }
 
 export class PaginatedCategoryResponseDto extends PaginatedResponseDto<CategoryResponseDto> {
   @ApiProperty({ type: [CategoryResponseDto] })
-  declare items: CategoryResponseDto[];
+  declare items: CategoryResponseDto[]
 }

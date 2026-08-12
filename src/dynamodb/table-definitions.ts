@@ -1,10 +1,10 @@
-import { AttributeDefinition, KeySchemaElement } from '@aws-sdk/client-dynamodb';
+import { AttributeDefinition, KeySchemaElement } from '@aws-sdk/client-dynamodb'
 
 export interface TableDefinition {
-  tableName: string;
-  attributeDefinitions: AttributeDefinition[];
-  keySchema: KeySchemaElement[];
-  billingMode: 'PAY_PER_REQUEST';
+  tableName: string
+  attributeDefinitions: AttributeDefinition[]
+  keySchema: KeySchemaElement[]
+  billingMode: 'PAY_PER_REQUEST'
 }
 
 export function getTableDefinitions(): TableDefinition[] {
@@ -21,5 +21,5 @@ export function getTableDefinitions(): TableDefinition[] {
       keySchema: [{ AttributeName: 'categoryId', KeyType: 'HASH' }],
       billingMode: 'PAY_PER_REQUEST',
     },
-  ];
+  ]
 }

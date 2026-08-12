@@ -8,7 +8,9 @@
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "db:setup": "ts-node src/scripts/setup-database.ts",
-    "db:seed": "ts-node src/scripts/seed-database.ts"
+    "db:seed": "ts-node src/scripts/seed-database.ts",
+    "format": "prettier --write \"src/**/*.ts\" \"*.{json,md,yml}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"*.{json,md,yml}\""
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1107.0",
@@ -30,8 +32,9 @@
     "@nestjs/schematics": "^11.1.0",
     "@types/express": "^5.0.6",
     "@types/node": "^24.13.3",
-    "ts-node": "^10.9.2",
+    "prettier": "^3.9.6",
     "ts-loader": "^9.6.2",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }
 }

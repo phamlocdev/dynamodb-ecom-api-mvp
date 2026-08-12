@@ -1,5 +1,5 @@
-import { Global, Module } from '@nestjs/common';
-import { DynamoDbService } from './dynamodb.service';
+import { Global, Module } from '@nestjs/common'
+import { DynamoDbService } from './dynamodb.service'
 
 @Global()
 @Module({

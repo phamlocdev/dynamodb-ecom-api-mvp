@@ -1,11 +1,11 @@
-import { DynamoDBClient, DynamoDBClientConfig } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBClient, DynamoDBClientConfig } from '@aws-sdk/client-dynamodb'
+import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
 
 export interface DynamoDbSettings {
-  endpoint: string;
-  region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
+  endpoint: string
+  region: string
+  accessKeyId: string
+  secretAccessKey: string
 }
 
 export function getDynamoDbSettings(
@@ -16,7 +16,7 @@ export function getDynamoDbSettings(
     region: environment.AWS_REGION ?? 'ap-southeast-1',
     accessKeyId: environment.AWS_ACCESS_KEY_ID ?? 'test',
     secretAccessKey: environment.AWS_SECRET_ACCESS_KEY ?? 'test',
-  };
+  }
 }
 
 export function createDynamoDbClient(
@@ -29,9 +29,9 @@ export function createDynamoDbClient(
       accessKeyId: settings.accessKeyId,
       secretAccessKey: settings.secretAccessKey,
     },
-  };
+  }
 
-  return new DynamoDBClient(config);
+  return new DynamoDBClient(config)
 }
 
 export function createDynamoDbDocumentClient(
@@ -39,5 +39,5 @@ export function createDynamoDbDocumentClient(
 ): DynamoDBDocumentClient {
   return DynamoDBDocumentClient.from(createDynamoDbClient(settings), {
     marshallOptions: { removeUndefinedValues: true },
-  });
+  })
 }

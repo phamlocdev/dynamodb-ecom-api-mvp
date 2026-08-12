@@ -1,24 +1,27 @@
-import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer'
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 const trimString = ({ value }: { value: unknown }): unknown =>
-  typeof value === 'string' ? value.trim() : value;
+  typeof value === 'string' ? value.trim() : value
 
 export class CreateCategoryDto {
-  @ApiProperty({ example: 'electronics', description: 'Stable lowercase slug used by Product.categoryId' })
+  @ApiProperty({
+    example: 'electronics',
+    description: 'Stable lowercase slug used by Product.categoryId',
+  })
   @Transform(trimString)
   @IsString()
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   @MaxLength(64)
-  categoryId!: string;
+  categoryId!: string
 
   @ApiProperty({ example: 'Thiết bị điện tử' })
   @Transform(trimString)
   @IsString()
   @MinLength(2)
   @MaxLength(80)
-  name!: string;
+  name!: string
 
   @ApiPropertyOptional({ example: 'Thiết bị công nghệ và phụ kiện.' })
   @IsOptional()
@@ -26,5 +29,5 @@ export class CreateCategoryDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
-  description?: string;
+  description?: string
 }

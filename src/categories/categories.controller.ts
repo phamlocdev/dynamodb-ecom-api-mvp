@@ -9,7 +9,7 @@ import {
   Patch,
   Post,
   Query,
-} from '@nestjs/common';
+} from '@nestjs/common'
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -20,17 +20,14 @@ import {
   ApiOperation,
   ApiParam,
   ApiTags,
-} from '@nestjs/swagger';
-import { Category } from './category.types';
-import { CategoriesService } from './categories.service';
-import {
-  CategoryResponseDto,
-  PaginatedCategoryResponseDto,
-} from './dto/category-response.dto';
-import { CreateCategoryDto } from './dto/create-category.dto';
-import { UpdateCategoryDto } from './dto/update-category.dto';
-import { PaginationQueryDto } from '../pagination/pagination-query.dto';
-import { PaginatedResponse } from '../pagination/pagination.types';
+} from '@nestjs/swagger'
+import { Category } from './category.types'
+import { CategoriesService } from './categories.service'
+import { CategoryResponseDto, PaginatedCategoryResponseDto } from './dto/category-response.dto'
+import { CreateCategoryDto } from './dto/create-category.dto'
+import { UpdateCategoryDto } from './dto/update-category.dto'
+import { PaginationQueryDto } from '../pagination/pagination-query.dto'
+import { PaginatedResponse } from '../pagination/pagination.types'
 
 @ApiTags('categories')
 @Controller('categories')
@@ -43,14 +40,14 @@ export class CategoriesController {
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
   @ApiConflictResponse({ description: 'categoryId already exists.' })
   create(@Body() dto: CreateCategoryDto): Promise<Category> {
-    return this.categoriesService.create(dto);
+    return this.categoriesService.create(dto)
   }
 
   @Get()
   @ApiOperation({ summary: 'List categories' })
   @ApiOkResponse({ type: PaginatedCategoryResponseDto })
   findAll(@Query() query: PaginationQueryDto): Promise<PaginatedResponse<Category>> {
-    return this.categoriesService.findAll(query);
+    return this.categoriesService.findAll(query)
   }
 
   @Get(':categoryId')
@@ -59,7 +56,7 @@ export class CategoriesController {
   @ApiOkResponse({ type: CategoryResponseDto })
   @ApiNotFoundResponse({ description: 'Category does not exist.' })
   findOne(@Param('categoryId') categoryId: string): Promise<Category> {
-    return this.categoriesService.findOne(categoryId);
+    return this.categoriesService.findOne(categoryId)
   }
 
   @Patch(':categoryId')
@@ -72,7 +69,7 @@ export class CategoriesController {
     @Param('categoryId') categoryId: string,
     @Body() dto: UpdateCategoryDto,
   ): Promise<Category> {
-    return this.categoriesService.update(categoryId, dto);
+    return this.categoriesService.update(categoryId, dto)
   }
 
   @Delete(':categoryId')
@@ -85,6 +82,6 @@ export class CategoriesController {
   @ApiNoContentResponse({ description: 'Category deleted.' })
   @ApiNotFoundResponse({ description: 'Category does not exist.' })
   async remove(@Param('categoryId') categoryId: string): Promise<void> {
-    await this.categoriesService.remove(categoryId);
+    await this.categoriesService.remove(categoryId)
   }
 }
