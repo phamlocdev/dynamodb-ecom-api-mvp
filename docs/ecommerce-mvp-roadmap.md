@@ -19,7 +19,7 @@ The final learning outcome has two stages:
 - NestJS REST APIs with Swagger documentation.
 - DynamoDB running in LocalStack through the repository's Docker Compose setup.
 - Categories, Products, Cart, Orders, and Inventory.
-- A standalone, repeatable product seed command for about 200 products.
+- A standalone, repeatable database seed command for about 400 products and 40 categories.
 - VND pricing stored as integers.
 - Manual API checks and small scripts as learning verification.
 
@@ -123,13 +123,13 @@ temporary identity model until authentication is added.
 
 ## 6. Seed-data contract
 
-The future `db:seed:products` command will:
+The `db:seed` command will:
 
-- generate a deterministic catalogue of roughly 200 realistic products;
+- generate a deterministic catalogue of roughly 400 realistic products and 40 categories;
 - store integer VND prices;
-- use stable product IDs so re-running it does not create duplicates;
+- use stable IDs so re-running it produces the same seed dataset;
 - use safe batch retries for DynamoDB unprocessed items;
-- report how many records were created/updated/skipped; and
+- report how many records were deleted and created; and
 - not run automatically when the API starts.
 
 An explicit command makes its effects visible in learning sessions and avoids

@@ -8,7 +8,7 @@
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "db:setup": "ts-node src/scripts/setup-database.ts",
-    "db:seed:products": "ts-node src/scripts/seed-products.ts"
+    "db:seed": "ts-node src/scripts/seed-database.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1107.0",

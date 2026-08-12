@@ -11,7 +11,7 @@
 | Domain | Categories, Products, Cart, Orders, Inventory |
 | Initial data design | Multi-table design |
 | Later refactor | Single-table design, after the multi-table MVP works |
-| First vertical slice | Product CRUD and an idempotent script that seeds roughly 200 products |
+| First vertical slice | Product/Category CRUD and a unified script that reseeds 400 products and 40 categories |
 | Currency | VND; monetary values use integer `price` values, e.g. `199000` |
 | Identity before auth | A caller supplies a demo `customerId` for cart/order APIs |
 | Deferred features | AuthN/AuthZ, automated tests, product search, advanced filters, pagination, GSIs |
@@ -23,7 +23,7 @@
 | --- | --- |
 | Active unit | Unit 7 — `carts` and `cart_items`: composite keys and querying one cart |
 | Status | `not_started` |
-| Completed implementation evidence | Units 1–6: NestJS/Swagger baseline, `products` and `categories` tables, Product/Category CRUD, and 200-item idempotent product seed are implemented and manually verified on 2026-08-11. |
+| Completed implementation evidence | Units 1–6: NestJS/Swagger baseline, `products` and `categories` tables, Product/Category CRUD, and the unified reseed script are implemented. Latest seed target is 400 products and 40 categories. |
 | Repository observation | The e-commerce NestJS app is newly bootstrapped at repository root. Git tracking was intentionally removed by the learner before implementation. |
 | Next delivery | Model `carts` and `cart_items` with a composite primary key, then query one customer's cart. |
 
@@ -34,7 +34,7 @@
 - [x] Unit 2 — `products` table: primary key and idempotent table setup
 - [x] Unit 3 — Product create/read APIs: `PutItem`, `GetItem`, validation, Swagger
 - [x] Unit 4 — Product update/delete: `UpdateItem`, `DeleteItem`, conditional writes
-- [x] Unit 5 — Seed ~200 products and list them with `Scan`; understand its limits
+- [x] Unit 5 — Seed products/categories and list products with `Scan`; understand its limits
 - [x] Unit 6 — `categories` table and the Product–Category relationship
 - [ ] Unit 7 — `carts` and `cart_items`: composite keys and querying one cart
 - [ ] Unit 8 — `orders` and `order_items`: immutable records and denormalized snapshots
@@ -52,7 +52,7 @@
 | 2 | `mastered` | `npm.cmd run db:setup:products` created `products`; a second run verified the same `productId` HASH schema without creating a duplicate. | `PutItem` and `GetItem` |
 | 3 | `mastered` | Swagger `POST /products` generated a UUID Product with integer VND price; `GET /products/{productId}` read the same item. DTO validation and 404 mapping are documented. | `UpdateItem` and `DeleteItem` |
 | 4 | `mastered` | Swagger `PATCH` changed price/status and returned the updated item; `DELETE` returned 204; GET after deletion returned 404. | Batch write, seed idempotency, and `Scan` |
-| 5 | `mastered` | First seed: `created=200, skipped=0`; second seed: `created=0, skipped=200`; direct DynamoDB `Scan` and `GET /products` both confirmed 200 records. | Categories table and references |
+| 5 | `mastered` | First product seed: `created=200, skipped=0`; second seed: `created=0, skipped=200`; direct DynamoDB `Scan` and `GET /products` both confirmed 200 records. Seed script later generalized to reseed all seed tables with 400 products and 40 categories. | Categories table and references |
 | 6 | `mastered` | Refactored table creation to idempotent `npm.cmd run db:setup`; it verified `products`, created `categories`, then verified both tables on a second run. Swagger Category CRUD created `electronics`, updated/deleted a temporary category, and confirmed GET-after-delete is 404. | Cart PK/SK and `Query` |
 
 ## Progress-update template
@@ -116,9 +116,8 @@ Copy this block when completing a unit:
   verify it.
 - DynamoDB has no foreign key, join, or cascade delete here. Deleting a
   Category does not rewrite Products with that `categoryId`.
-- The existing seed uses five category slugs. After creating `electronics`, 40
-  seeded Products reference that Category. The other slugs may be created via
-  Swagger when needed.
+- The unified seed script creates 40 Category records and 400 Product records.
+  Seeded Products reference one of those Category slugs.
 
 ### Beginner pitfalls (Tiếng Việt)
 

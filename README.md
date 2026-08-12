@@ -1,7 +1,7 @@
 # DynamoDB E-commerce Learning MVP
 
 NestJS REST API để học DynamoDB với LocalStack. Giai đoạn hiện tại hoàn tất
-Product CRUD và seed catalogue 200 sản phẩm VND theo multi-table design.
+Product/Category CRUD và seed catalogue 400 sản phẩm, 40 danh mục theo multi-table design.
 
 ## Chạy project
 
@@ -10,10 +10,10 @@ Product CRUD và seed catalogue 200 sản phẩm VND theo multi-table design.
 2. Cài dependencies: `npm.cmd install`
 3. Khởi động DynamoDB LocalStack: `docker compose up -d`
 4. Tạo toàn bộ DynamoDB tables (an toàn khi chạy lặp): `npm.cmd run db:setup`
-5. Seed 200 products (insert-only idempotent): `npm.cmd run db:seed:products`
+5. Reseed all tables (replace existing seed-table data): `npm.cmd run db:seed`
 6. Chạy API: `npm.cmd run start:dev`
 
-Swagger: <http://localhost:3000/api>
+Swagger: <http://localhost:8000/api>
 
 ## Endpoints hiện có
 
