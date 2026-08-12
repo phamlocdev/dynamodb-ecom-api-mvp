@@ -3,3 +3,5 @@ dist/
 coverage/
 .env
 localstack-data*/
+.aws-sam/
+lambda-response-*.json

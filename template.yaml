@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Product Lambda functions for the DynamoDB learning repo
+
+Parameters:
+  ProductsTableName:
+    Type: String
+    Default: products
+  DynamoDbEndpoint:
+    Type: String
+    Default: ''
+  AwsRegion:
+    Type: String
+    Default: ap-southeast-1
+  AwsAccessKeyId:
+    Type: String
+    Default: ''
+  AwsSecretAccessKey:
+    Type: String
+    Default: ''
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures:
+      - x86_64
+    PackageType: Zip
+    Timeout: 10
+    MemorySize: 256
+    Environment:
+      Variables:
+        PRODUCTS_TABLE: !Ref ProductsTableName
+        DYNAMODB_ENDPOINT: !Ref DynamoDbEndpoint
+        AWS_REGION: !Ref AwsRegion
+        AWS_ACCESS_KEY_ID: !Ref AwsAccessKeyId
+        AWS_SECRET_ACCESS_KEY: !Ref AwsSecretAccessKey
+
+Resources:
+  CreateProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: CreateProductFunction
+      CodeUri: .
+      Handler: create-product.handler
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/lambda/handlers/create-product.handler.ts
+        Minify: false
+        Sourcemap: true
+        Target: es2022
+
+  ListProductsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: ListProductsFunction
+      CodeUri: .
+      Handler: list-products.handler
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/lambda/handlers/list-products.handler.ts
+        Minify: false
+        Sourcemap: true
+        Target: es2022
+
+  GetProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: GetProductFunction
+      CodeUri: .
+      Handler: get-product.handler
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/lambda/handlers/get-product.handler.ts
+        Minify: false
+        Sourcemap: true
+        Target: es2022
+
+  UpdateProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: UpdateProductFunction
+      CodeUri: .
+      Handler: update-product.handler
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/lambda/handlers/update-product.handler.ts
+        Minify: false
+        Sourcemap: true
+        Target: es2022
+
+  DeleteProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: DeleteProductFunction
+      CodeUri: .
+      Handler: delete-product.handler
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints:
+          - src/lambda/handlers/delete-product.handler.ts
+        Minify: false
+        Sourcemap: true
+        Target: es2022

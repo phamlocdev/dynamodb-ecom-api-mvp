@@ -1,0 +1,10 @@
+{
+  "payload": {
+    "name": "Lambda Demo Speaker",
+    "description": "Portable speaker created through a LocalStack Lambda invoke.",
+    "categoryId": "audio",
+    "price": 799000,
+    "imageUrl": "https://images.example.com/lambda-demo-speaker.jpg",
+    "status": "ACTIVE"
+  }
+}
