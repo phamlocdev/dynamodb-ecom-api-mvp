@@ -21,11 +21,11 @@
 
 | Field | Value |
 | --- | --- |
-| Active unit | Unit 6 — Categories table and Product–Category relationship |
+| Active unit | Unit 7 — `carts` and `cart_items`: composite keys and querying one cart |
 | Status | `not_started` |
-| Completed implementation evidence | Units 1–5: NestJS/Swagger baseline, LocalStack health check, idempotent `products` setup, Product CRUD, and 200-item idempotent seed are implemented and manually verified on 2026-08-11. |
+| Completed implementation evidence | Units 1–6: NestJS/Swagger baseline, `products` and `categories` tables, Product/Category CRUD, and 200-item idempotent product seed are implemented and manually verified on 2026-08-11. |
 | Repository observation | The e-commerce NestJS app is newly bootstrapped at repository root. Git tracking was intentionally removed by the learner before implementation. |
-| Next delivery | Create `categories`, then decide how the existing `categoryId` reference is validated. |
+| Next delivery | Model `carts` and `cart_items` with a composite primary key, then query one customer's cart. |
 
 ## Roadmap status
 
@@ -35,7 +35,7 @@
 - [x] Unit 3 — Product create/read APIs: `PutItem`, `GetItem`, validation, Swagger
 - [x] Unit 4 — Product update/delete: `UpdateItem`, `DeleteItem`, conditional writes
 - [x] Unit 5 — Seed ~200 products and list them with `Scan`; understand its limits
-- [ ] Unit 6 — `categories` table and the Product–Category relationship
+- [x] Unit 6 — `categories` table and the Product–Category relationship
 - [ ] Unit 7 — `carts` and `cart_items`: composite keys and querying one cart
 - [ ] Unit 8 — `orders` and `order_items`: immutable records and denormalized snapshots
 - [ ] Unit 9 — `inventory`: conditional stock changes and DynamoDB transactions
@@ -53,6 +53,7 @@
 | 3 | `mastered` | Swagger `POST /products` generated a UUID Product with integer VND price; `GET /products/{productId}` read the same item. DTO validation and 404 mapping are documented. | `UpdateItem` and `DeleteItem` |
 | 4 | `mastered` | Swagger `PATCH` changed price/status and returned the updated item; `DELETE` returned 204; GET after deletion returned 404. | Batch write, seed idempotency, and `Scan` |
 | 5 | `mastered` | First seed: `created=200, skipped=0`; second seed: `created=0, skipped=200`; direct DynamoDB `Scan` and `GET /products` both confirmed 200 records. | Categories table and references |
+| 6 | `mastered` | Refactored table creation to idempotent `npm.cmd run db:setup`; it verified `products`, created `categories`, then verified both tables on a second run. Swagger Category CRUD created `electronics`, updated/deleted a temporary category, and confirmed GET-after-delete is 404. | Cart PK/SK and `Query` |
 
 ## Progress-update template
 
@@ -103,3 +104,30 @@ Copy this block when completing a unit:
   `Scan` đọc toàn bộ items xem xét và không cam kết thứ tự; catalogue lớn cần
   access pattern, `Query`, pagination và thường là GSI. Mental model: `Scan`
   là công cụ học/tập dữ liệu nhỏ, không phải catalogue query dài hạn.
+
+## Unit 6 — Category relationship contract and beginner pitfalls
+
+### Relationship contract
+
+- `categories.categoryId` is the partition key and is a stable lowercase slug,
+  such as `electronics`.
+- `products.categoryId` is a **soft reference**. It is stored as a normal
+  string attribute and Product CRUD does not call `GetItem` on `categories` to
+  verify it.
+- DynamoDB has no foreign key, join, or cascade delete here. Deleting a
+  Category does not rewrite Products with that `categoryId`.
+- The existing seed uses five category slugs. After creating `electronics`, 40
+  seeded Products reference that Category. The other slugs may be created via
+  Swagger when needed.
+
+### Beginner pitfalls (Tiếng Việt)
+
+- **“`categoryId` trong Product có nghĩa DynamoDB tự kiểm tra Category tồn tại?”**
+  Không. Đây chỉ là string reference do application quy ước. Mental model:
+  DynamoDB không cung cấp foreign key như relational database.
+- **“Một file `setup-database.ts` nghĩa là single-table design?”** Không. Một
+  script có thể tạo nhiều physical tables; multi-table hay single-table là
+  quyết định data model, không phải số file setup.
+- **“Xóa Category thì DynamoDB tự xóa Product cùng categoryId?”** Không. Không
+  có cascade. Mental model: nếu cần referential integrity, application phải
+  thiết kế explicit validation, cleanup flow, hoặc transaction phù hợp.

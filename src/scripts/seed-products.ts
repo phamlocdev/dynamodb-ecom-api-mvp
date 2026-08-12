@@ -108,6 +108,6 @@ function wait(milliseconds: number): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  console.error('Failed to seed products. Run npm run db:setup:products first.', error);
+  console.error('Failed to seed products. Run npm run db:setup first.', error);
   process.exitCode = 1;
 });

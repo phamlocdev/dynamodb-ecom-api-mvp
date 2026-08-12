@@ -7,7 +7,7 @@
     "build": "nest build",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
-    "db:setup:products": "ts-node src/scripts/setup-products-table.ts",
+    "db:setup": "ts-node src/scripts/setup-database.ts",
     "db:seed:products": "ts-node src/scripts/seed-products.ts"
   },
   "dependencies": {

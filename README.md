@@ -9,7 +9,7 @@ Product CRUD và seed catalogue 200 sản phẩm VND theo multi-table design.
    đặt trong `.env` để Docker Compose truyền token vào LocalStack.
 2. Cài dependencies: `npm.cmd install`
 3. Khởi động DynamoDB LocalStack: `docker compose up -d`
-4. Tạo bảng (an toàn khi chạy lặp): `npm.cmd run db:setup:products`
+4. Tạo toàn bộ DynamoDB tables (an toàn khi chạy lặp): `npm.cmd run db:setup`
 5. Seed 200 products (insert-only idempotent): `npm.cmd run db:seed:products`
 6. Chạy API: `npm.cmd run start:dev`
 
@@ -25,6 +25,11 @@ Swagger: <http://localhost:3000/api>
 | `GET` | `/products/{productId}` | Lấy một Product theo primary key |
 | `PATCH` | `/products/{productId}` | Cập nhật một hay nhiều trường Product |
 | `DELETE` | `/products/{productId}` | Xoá Product |
+| `POST` | `/categories` | Tạo Category với stable slug, ví dụ `electronics` |
+| `GET` | `/categories` | Liệt kê Categories |
+| `GET` | `/categories/{categoryId}` | Lấy một Category |
+| `PATCH` | `/categories/{categoryId}` | Cập nhật tên hoặc mô tả Category |
+| `DELETE` | `/categories/{categoryId}` | Xoá Category; không cascade sang Products |
 
 `GET /products` chưa có filter, search, sort hay pagination. Đây là giới hạn
 có chủ đích để học `Scan` trước khi thiết kế GSI/`Query` ở các unit tiếp theo.
