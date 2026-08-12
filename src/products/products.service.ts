@@ -18,6 +18,12 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductStatus } from './product-status.enum';
 import { Product } from './product.types';
+import { PaginationQueryDto } from '../pagination/pagination-query.dto';
+import { PaginatedResponse } from '../pagination/pagination.types';
+import {
+  resolvePaginationState,
+  toPaginatedResponse,
+} from '../pagination/pagination.util';
 
 @Injectable()
 export class ProductsService {
@@ -63,11 +69,22 @@ export class ProductsService {
     }
   }
 
-  async findAll(): Promise<Product[]> {
+  async findAll(query: PaginationQueryDto): Promise<PaginatedResponse<Product>> {
+    const pagination = resolvePaginationState('products', query);
     const response = await this.dynamoDbService.documentClient.send(
-      new ScanCommand({ TableName: this.tableName }),
+      new ScanCommand({
+        TableName: this.tableName,
+        Limit: pagination.limit,
+        ExclusiveStartKey: pagination.startKey ?? undefined,
+      }),
     );
-    return (response.Items ?? []) as Product[];
+
+    return toPaginatedResponse(
+      'products',
+      pagination,
+      (response.Items ?? []) as Product[],
+      response.LastEvaluatedKey,
+    );
   }
 
   async findOne(productId: string): Promise<Product> {

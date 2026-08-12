@@ -16,6 +16,12 @@ import { DynamoDbService } from '../dynamodb/dynamodb.service';
 import { Category } from './category.types';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { PaginationQueryDto } from '../pagination/pagination-query.dto';
+import { PaginatedResponse } from '../pagination/pagination.types';
+import {
+  resolvePaginationState,
+  toPaginatedResponse,
+} from '../pagination/pagination.util';
 
 @Injectable()
 export class CategoriesService {
@@ -56,11 +62,21 @@ export class CategoriesService {
     }
   }
 
-  async findAll(): Promise<Category[]> {
+  async findAll(query: PaginationQueryDto): Promise<PaginatedResponse<Category>> {
+    const pagination = resolvePaginationState('categories', query);
     const response = await this.dynamoDbService.documentClient.send(
-      new ScanCommand({ TableName: this.tableName }),
+      new ScanCommand({
+        TableName: this.tableName,
+        Limit: pagination.limit,
+        ExclusiveStartKey: pagination.startKey ?? undefined,
+      }),
     );
-    return (response.Items ?? []) as Category[];
+    return toPaginatedResponse(
+      'categories',
+      pagination,
+      (response.Items ?? []) as Category[],
+      response.LastEvaluatedKey,
+    );
   }
 
   async findOne(categoryId: string): Promise<Category> {

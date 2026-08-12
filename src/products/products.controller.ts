@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -11,10 +22,15 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { CreateProductDto } from './dto/create-product.dto';
-import { ProductResponseDto } from './dto/product-response.dto';
+import {
+  PaginatedProductResponseDto,
+  ProductResponseDto,
+} from './dto/product-response.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductsService } from './products.service';
 import { Product } from './product.types';
+import { PaginationQueryDto } from '../pagination/pagination-query.dto';
+import { PaginatedResponse } from '../pagination/pagination.types';
 
 @ApiTags('products')
 @Controller('products')
@@ -33,11 +49,11 @@ export class ProductsController {
   @Get()
   @ApiOperation({
     summary: 'List products',
-    description: 'Uses DynamoDB Scan for this small learning dataset. No order or pagination is guaranteed.',
+    description: 'Uses DynamoDB Scan with cursor pagination for this small learning dataset. No order is guaranteed.',
   })
-  @ApiOkResponse({ type: ProductResponseDto, isArray: true })
-  findAll(): Promise<Product[]> {
-    return this.productsService.findAll();
+  @ApiOkResponse({ type: PaginatedProductResponseDto })
+  findAll(@Query() query: PaginationQueryDto): Promise<PaginatedResponse<Product>> {
+    return this.productsService.findAll(query);
   }
 
   @Get(':productId')

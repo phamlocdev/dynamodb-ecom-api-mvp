@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -12,9 +23,14 @@ import {
 } from '@nestjs/swagger';
 import { Category } from './category.types';
 import { CategoriesService } from './categories.service';
-import { CategoryResponseDto } from './dto/category-response.dto';
+import {
+  CategoryResponseDto,
+  PaginatedCategoryResponseDto,
+} from './dto/category-response.dto';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { PaginationQueryDto } from '../pagination/pagination-query.dto';
+import { PaginatedResponse } from '../pagination/pagination.types';
 
 @ApiTags('categories')
 @Controller('categories')
@@ -32,9 +48,9 @@ export class CategoriesController {
 
   @Get()
   @ApiOperation({ summary: 'List categories' })
-  @ApiOkResponse({ type: CategoryResponseDto, isArray: true })
-  findAll(): Promise<Category[]> {
-    return this.categoriesService.findAll();
+  @ApiOkResponse({ type: PaginatedCategoryResponseDto })
+  findAll(@Query() query: PaginationQueryDto): Promise<PaginatedResponse<Category>> {
+    return this.categoriesService.findAll(query);
   }
 
   @Get(':categoryId')

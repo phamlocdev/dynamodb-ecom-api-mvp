@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginatedResponseDto } from '../../pagination/pagination.types';
 
 export class CategoryResponseDto {
   @ApiProperty({ example: 'electronics' })
@@ -15,4 +16,9 @@ export class CategoryResponseDto {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: string;
+}
+
+export class PaginatedCategoryResponseDto extends PaginatedResponseDto<CategoryResponseDto> {
+  @ApiProperty({ type: [CategoryResponseDto] })
+  declare items: CategoryResponseDto[];
 }
