@@ -1,11 +1,11 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common'
+import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common'
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
-  constructor(private readonly dynamoDbService: DynamoDbService) {}
+  constructor(@Inject(DynamoDbService) private readonly dynamoDbService: DynamoDbService) {}
 
   @Get()
   @ApiOperation({ summary: 'Check NestJS and LocalStack DynamoDB connectivity' })

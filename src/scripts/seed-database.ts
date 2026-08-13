@@ -220,6 +220,6 @@ function wait(milliseconds: number): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  console.error('Failed to seed DynamoDB tables. Run npm run db:setup first.', error)
+  console.error('Failed to seed DynamoDB tables. Run npm run infra:deploy first.', error)
   process.exitCode = 1
 })

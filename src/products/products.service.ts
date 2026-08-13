@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -27,7 +28,9 @@ export class ProductsService {
   private readonly tableName: string
 
   constructor(
+    @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(ConfigService)
     configService: ConfigService,
   ) {
     this.tableName = configService.get<string>('PRODUCTS_TABLE') ?? 'products'

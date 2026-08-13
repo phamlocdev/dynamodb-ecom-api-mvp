@@ -13,7 +13,7 @@ export function getDynamoDbSettings(
 ): DynamoDbSettings {
   return {
     endpoint: environment.DYNAMODB_ENDPOINT ?? 'http://localhost:4566',
-    region: environment.AWS_REGION ?? 'ap-southeast-1',
+    region: environment.AWS_REGION ?? environment.AWS_DEFAULT_REGION ?? 'ap-southeast-1',
     accessKeyId: environment.AWS_ACCESS_KEY_ID ?? 'test',
     secretAccessKey: environment.AWS_SECRET_ACCESS_KEY ?? 'test',
   }

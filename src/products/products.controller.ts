@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   Patch,
   Post,
@@ -29,18 +30,19 @@ import { UpdateProductDto } from './dto/update-product.dto'
 import { ProductsService } from './products.service'
 import { Product } from './product.types'
 import { PaginatedResponse } from '../pagination/pagination.types'
+import { DtoValidationPipe } from '../validation/dto-validation.pipe'
 
 @ApiTags('products')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(@Inject(ProductsService) private readonly productsService: ProductsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a product' })
   @ApiCreatedResponse({ type: ProductResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
   @ApiConflictResponse({ description: 'Generated ID already exists.' })
-  create(@Body() dto: CreateProductDto): Promise<Product> {
+  create(@Body(new DtoValidationPipe(CreateProductDto)) dto: CreateProductDto): Promise<Product> {
     return this.productsService.create(dto)
   }
 
@@ -90,7 +92,9 @@ export class ProductsController {
     description: 'Case-sensitive substring search across product name and description.',
   })
   @ApiOkResponse({ type: PaginatedProductResponseDto })
-  findAll(@Query() query: ListProductsQueryDto): Promise<PaginatedResponse<Product>> {
+  findAll(
+    @Query(new DtoValidationPipe(ListProductsQueryDto)) query: ListProductsQueryDto,
+  ): Promise<PaginatedResponse<Product>> {
     return this.productsService.findAll(query)
   }
 
@@ -109,7 +113,10 @@ export class ProductsController {
   @ApiOkResponse({ type: ProductResponseDto })
   @ApiBadRequestResponse({ description: 'No mutable fields or invalid input.' })
   @ApiNotFoundResponse({ description: 'Product does not exist.' })
-  update(@Param('productId') productId: string, @Body() dto: UpdateProductDto): Promise<Product> {
+  update(
+    @Param('productId') productId: string,
+    @Body(new DtoValidationPipe(UpdateProductDto)) dto: UpdateProductDto,
+  ): Promise<Product> {
     return this.productsService.update(productId, dto)
   }
 
