@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-lambda/
+cdk.out/
 coverage/
 .env
 localstack-data*/

@@ -24,7 +24,6 @@ Globals:
     Runtime: nodejs22.x
     Architectures:
       - x86_64
-    PackageType: Zip
     Timeout: 10
     MemorySize: 256
     Environment:
@@ -46,7 +45,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - src/lambda/handlers/create-product.handler.ts
+          - src/lambda/entrypoints/create-product.ts
         Minify: false
         Sourcemap: true
         Target: es2022
@@ -61,7 +60,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - src/lambda/handlers/list-products.handler.ts
+          - src/lambda/entrypoints/list-products.ts
         Minify: false
         Sourcemap: true
         Target: es2022
@@ -76,7 +75,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - src/lambda/handlers/get-product.handler.ts
+          - src/lambda/entrypoints/get-product.ts
         Minify: false
         Sourcemap: true
         Target: es2022
@@ -91,7 +90,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - src/lambda/handlers/update-product.handler.ts
+          - src/lambda/entrypoints/update-product.ts
         Minify: false
         Sourcemap: true
         Target: es2022
@@ -106,7 +105,7 @@ Resources:
       BuildMethod: esbuild
       BuildProperties:
         EntryPoints:
-          - src/lambda/handlers/delete-product.handler.ts
+          - src/lambda/entrypoints/delete-product.ts
         Minify: false
         Sourcemap: true
         Target: es2022
