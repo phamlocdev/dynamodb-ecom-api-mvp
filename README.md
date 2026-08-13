@@ -1,150 +1,87 @@
 # DynamoDB E-commerce Learning MVP
 
-NestJS REST API để học DynamoDB với LocalStack. Repo hiện có:
-- REST API cho `products` và `categories`
-- shared Product core dùng chung cho Nest controller và Lambda handlers
-- SAM template để build/deploy 5 Product Lambda functions
+NestJS REST API for learning DynamoDB with LocalStack.
 
-## Chạy REST API hiện tại
+## Current Setup
 
-1. Tạo `.env` từ `.env.example` nếu chưa có.
-2. Cài dependencies: `npm.cmd install`
-3. Khởi động LocalStack: `docker compose up -d`
-4. Tạo tables: `npm.cmd run db:setup`
-5. Seed dữ liệu: `npm.cmd run db:seed`
-6. Chạy API: `npm.cmd run start:dev`
+- NestJS app exposes REST endpoints for `products`, `categories`, and `health`
+- Product and category CRUD are also deployed to LocalStack as Lambda functions behind API Gateway REST API v1
+- Lambda code is bundled with `esbuild` and deployed through CDK using LocalStack hot reload
 
-Swagger: <http://localhost:8000/api>
+## Local Development
 
-## Product Lambdas trong repo
+1. Create `.env` from `.env.example` if needed.
+2. Install dependencies: `npm.cmd install`
+3. Start LocalStack: `docker compose up -d --force-recreate`
+4. Create tables: `npm.cmd run db:setup`
+5. Seed data if needed: `npm.cmd run db:seed`
+6. Run the Nest app: `npm.cmd run start:dev`
 
-Các handlers nằm ở [`src/lambda/handlers`](D:\innomize\internship\server\src\lambda\handlers:1):
-- `create-product`
-- `list-products`
-- `get-product`
-- `update-product`
-- `delete-product`
+Swagger UI: <http://localhost:8000/api>
 
-Tất cả handlers:
-- không bootstrap Nest app
-- dùng lại shared `ProductsCore`
-- validate input bằng `class-validator`
-- trả response shape:
+## Deploy Catalog Lambdas to LocalStack
 
-```json
-{
-  "success": true,
-  "data": {}
-}
-```
+1. Make sure `docker-compose.yml` includes `dynamodb`, `lambda`, `iam`, `logs`, `cloudformation`, `s3`, `sts`, and `apigateway`
+2. Bundle Lambda entrypoints: `npm.cmd run cdk:build:lambdas`
+3. Deploy the CDK stack: `npm.cmd run cdk:deploy:local`
 
-hoặc
+Important parameters passed by the deploy script:
 
-```json
-{
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR | NOT_FOUND | CONFLICT | INTERNAL_ERROR",
-    "message": "...",
-    "details": []
-  }
-}
-```
-
-## Prerequisites cho SAM
-
-Local learning path:
-- Docker Desktop
-- SAM CLI
-- `aws-sam-cli-local` để có lệnh `samlocal`
-- AWS CLI để invoke function đã deploy vào LocalStack
-
-Cloud path:
-- AWS account
-- AWS CLI đã `aws configure`
-- SAM CLI
-
-## Build và deploy Lambda lên LocalStack
-
-`docker-compose.yml` hiện cần các services:
-- `dynamodb`
-- `lambda`
-- `iam`
-- `logs`
-- `cloudformation`
-- `s3`
-
-Flow local:
-
-1. Recreate LocalStack sau khi đổi service list:
-   `docker compose up -d --force-recreate`
-2. Tạo tables:
-   `npm.cmd run db:setup`
-3. Seed dữ liệu:
-   `npm.cmd run db:seed`
-4. Build SAM:
-   `npm.cmd run sam:build`
-5. Deploy lên LocalStack:
-   `npm.cmd run sam:deploy:local`
-
-Script deploy local truyền:
 - `ProductsTableName=products`
+- `CategoriesTableName=categories`
 - `DynamoDbEndpoint=http://localhost.localstack.cloud:4566`
-- `AwsRegion=ap-southeast-1`
-- `AwsAccessKeyId=test`
-- `AwsSecretAccessKey=test`
 
-Lý do dùng `localhost.localstack.cloud`:
-- Nest app chạy trên host vẫn có thể dùng `http://localhost:4566`
-- Lambda container bên trong LocalStack cần một hostname truy cập được LocalStack từ trong container
+`localhost.localstack.cloud` is used so Lambda containers inside LocalStack can still reach the LocalStack edge endpoint.
 
-## Invoke Product Lambdas trên LocalStack
+## Test Catalog API on LocalStack
 
-Sample events nằm trong [`events`](D:\innomize\internship\server\events:1).
+Read the API base URL from the stack output:
 
-Invoke commands:
-- `npm.cmd run sam:invoke:create`
-- `npm.cmd run sam:invoke:list`
-- `npm.cmd run sam:invoke:get`
-- `npm.cmd run sam:invoke:update`
-- `npm.cmd run sam:invoke:delete`
+```powershell
+$BASE_URL = aws cloudformation describe-stacks `
+  --endpoint-url http://localhost:4566 `
+  --region ap-southeast-1 `
+  --stack-name DynamodbLearningLambdasLocalStack `
+  --query "Stacks[0].Outputs[?OutputKey=='ProductsApiBaseUrl'].OutputValue" `
+  --output text
+```
 
-Mỗi lệnh sẽ ghi output vào file:
-- `lambda-response-create.json`
-- `lambda-response-list.json`
-- `lambda-response-get.json`
-- `lambda-response-update.json`
-- `lambda-response-delete.json`
+Example requests:
 
-## Deploy Lambda lên AWS cloud
+```powershell
+curl.exe "$BASE_URL/products?limit=10"
+```
 
-Bạn **không cần** AWS account để học và chạy LocalStack path.
+```powershell
+curl.exe -X POST "$BASE_URL/products" `
+  -H "Content-Type: application/json" `
+  -d "{\"name\":\"API Gateway Speaker\",\"description\":\"Created through LocalStack API Gateway.\",\"categoryId\":\"audio\",\"price\":799000,\"status\":\"ACTIVE\"}"
+```
 
-Bạn **cần** AWS account khi muốn deploy Lambda thật lên AWS cloud.
+```powershell
+curl.exe "$BASE_URL/categories?limit=10"
+```
 
-Flow cloud cơ bản:
-1. Sửa parameter `DynamoDbEndpoint` thành chuỗi rỗng hoặc bỏ hẳn local endpoint
-2. Đảm bảo Lambda execution role có quyền CloudWatch Logs và DynamoDB
-3. Chạy `npm.cmd run sam:build`
-4. Chạy `npm.cmd run sam:deploy:aws`
-5. SAM sẽ hỏi stack name, region, confirm changeset, capability IAM
+```powershell
+curl.exe -X POST "$BASE_URL/categories" `
+  -H "Content-Type: application/json" `
+  -d "{\"categoryId\":\"localstack-demo\",\"name\":\"LocalStack Demo\",\"description\":\"Created through LocalStack API Gateway.\"}"
+```
 
-Lưu ý cho cloud:
-- nếu Lambda chạy với DynamoDB thật trên AWS thì không nên set `DYNAMODB_ENDPOINT`
-- nên dùng IAM role của Lambda thay vì hardcode credentials trong environment variables
+## API Routes
 
-## Endpoints REST hiện có
+- `POST /products`
+- `GET /products`
+- `GET /products/{productId}`
+- `PATCH /products/{productId}`
+- `DELETE /products/{productId}`
+- `POST /categories`
+- `GET /categories`
+- `GET /categories/{categoryId}`
+- `PATCH /categories/{categoryId}`
+- `DELETE /categories/{categoryId}`
 
-| Method   | Endpoint                   | Mục đích                                           |
-| -------- | -------------------------- | -------------------------------------------------- |
-| `GET`    | `/health`                  | Xác minh NestJS kết nối được LocalStack DynamoDB   |
-| `POST`   | `/products`                | Tạo Product với giá VND integer                    |
-| `GET`    | `/products`                | Liệt kê catalogue bằng DynamoDB `Scan`             |
-| `GET`    | `/products/{productId}`    | Lấy một Product theo primary key                   |
-| `PATCH`  | `/products/{productId}`    | Cập nhật một hay nhiều trường Product              |
-| `DELETE` | `/products/{productId}`    | Xoá Product                                        |
-| `POST`   | `/categories`              | Tạo Category với stable slug, ví dụ `electronics`  |
-| `GET`    | `/categories`              | Liệt kê Categories                                 |
-| `GET`    | `/categories/{categoryId}` | Lấy một Category                                   |
-| `PATCH`  | `/categories/{categoryId}` | Cập nhật tên hoặc mô tả Category                   |
-| `DELETE` | `/categories/{categoryId}` | Xoá Category; không cascade sang Products          |
+## Notes
+
+- This repo keeps `aws-cdk` and `aws-cdk-lib` pinned to `2.176.0` because `aws-cdk-local` is sensitive to newer versions.
+- API Gateway is the only supported entrypoint for the catalog Lambdas in the current LocalStack flow.

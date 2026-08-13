@@ -1,17 +1,17 @@
-import { BadRequestException } from '@nestjs/common'
+import { AppError } from '../common/errors/app-error'
 import {
   DEFAULT_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
-  PageSize,
-  PaginationQueryDto,
-} from './pagination-query.dto'
+  type PageSize,
+} from './pagination.constants'
 import {
-  CursorKey,
-  CursorScope,
-  PaginatedResponse,
-  PaginationResource,
-  PaginationState,
+  type CursorKey,
+  type CursorScope,
+  type PaginatedResponse,
+  type PaginationResource,
+  type PaginationState,
 } from './pagination.types'
+import type { PaginationQueryDto } from './pagination-query.dto'
 
 interface CursorPayload {
   resource: PaginationResource
@@ -34,13 +34,13 @@ export function resolvePaginationState(
 
   const payload = decodeCursor(query.cursor)
   if (payload.resource !== resource) {
-    throw new BadRequestException('Cursor does not belong to this resource.')
+    throw new AppError('VALIDATION_ERROR', 'Cursor does not belong to this resource.')
   }
   if (payload.limit !== limit) {
-    throw new BadRequestException('Cursor limit does not match the requested limit.')
+    throw new AppError('VALIDATION_ERROR', 'Cursor limit does not match the requested limit.')
   }
   if (!scopesMatch(payload.scope ?? {}, scope)) {
-    throw new BadRequestException('Cursor filters do not match the requested filters.')
+    throw new AppError('VALIDATION_ERROR', 'Cursor filters do not match the requested filters.')
   }
 
   return {
@@ -112,10 +112,10 @@ function decodeCursor(cursor: string): CursorPayload {
       return parsed
     }
   } catch {
-    // Fall through to the common BadRequestException below.
+    // Fall through to the common validation error below.
   }
 
-  throw new BadRequestException('Cursor is malformed.')
+  throw new AppError('VALIDATION_ERROR', 'Cursor is malformed.')
 }
 
 function isCursorPayload(value: unknown): value is CursorPayload {

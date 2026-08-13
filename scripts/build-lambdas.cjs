@@ -10,6 +10,11 @@ const entries = [
   ['get-product', 'src/lambda/entrypoints/get-product.ts'],
   ['update-product', 'src/lambda/entrypoints/update-product.ts'],
   ['delete-product', 'src/lambda/entrypoints/delete-product.ts'],
+  ['create-category', 'src/lambda/entrypoints/create-category.ts'],
+  ['list-categories', 'src/lambda/entrypoints/list-categories.ts'],
+  ['get-category', 'src/lambda/entrypoints/get-category.ts'],
+  ['update-category', 'src/lambda/entrypoints/update-category.ts'],
+  ['delete-category', 'src/lambda/entrypoints/delete-category.ts'],
 ]
 
 async function main() {

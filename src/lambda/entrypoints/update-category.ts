@@ -1,10 +1,10 @@
 import { createApiGatewayHandler } from '../api-gateway-rest-adapter'
-import { handler as updateProductHandler } from '../handlers/update-product.handler'
+import { handler as updateCategoryHandler } from '../handlers/update-category.handler'
 
 export const handler = createApiGatewayHandler({
-  businessHandler: updateProductHandler,
+  businessHandler: updateCategoryHandler,
   mapEvent: ({ body, pathParameters }) => ({
-    productId: pathParameters.productId,
+    categoryId: pathParameters.categoryId,
     payload: body ?? {},
   }),
   successStatusCode: 200,

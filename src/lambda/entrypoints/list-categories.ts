@@ -1,8 +1,8 @@
 import { createApiGatewayHandler } from '../api-gateway-rest-adapter'
-import { handler as listProductsHandler } from '../handlers/list-products.handler'
+import { handler as listCategoriesHandler } from '../handlers/list-categories.handler'
 
 export const handler = createApiGatewayHandler({
-  businessHandler: listProductsHandler,
+  businessHandler: listCategoriesHandler,
   mapEvent: ({ queryStringParameters }) => ({
     query: queryStringParameters,
   }),

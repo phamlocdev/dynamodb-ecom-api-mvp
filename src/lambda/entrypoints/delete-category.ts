@@ -1,10 +1,10 @@
 import { createApiGatewayHandler } from '../api-gateway-rest-adapter'
-import { handler as deleteProductHandler } from '../handlers/delete-product.handler'
+import { handler as deleteCategoryHandler } from '../handlers/delete-category.handler'
 
 export const handler = createApiGatewayHandler({
-  businessHandler: deleteProductHandler,
+  businessHandler: deleteCategoryHandler,
   mapEvent: ({ pathParameters }) => ({
-    productId: pathParameters.productId,
+    categoryId: pathParameters.categoryId,
   }),
   successStatusCode: 204,
 })
