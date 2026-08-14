@@ -5,8 +5,11 @@ services:
     ports:
       - '4566:4566'
     environment:
-      SERVICES: dynamodb
+      SERVICES: dynamodb,lambda,apigateway,iam,cloudformation,s3,sts,logs,ssm,ecr
       DEBUG: 0
+      AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
       LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN}
     volumes:
       - './localstack-data:/var/lib/localstack'

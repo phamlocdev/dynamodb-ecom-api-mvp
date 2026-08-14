@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Inject,
   Param,
   Patch,
   Post,
@@ -28,25 +29,28 @@ import { CreateCategoryDto } from './dto/create-category.dto'
 import { UpdateCategoryDto } from './dto/update-category.dto'
 import { PaginationQueryDto } from '../pagination/pagination-query.dto'
 import { PaginatedResponse } from '../pagination/pagination.types'
+import { DtoValidationPipe } from '../validation/dto-validation.pipe'
 
 @ApiTags('categories')
 @Controller('categories')
 export class CategoriesController {
-  constructor(private readonly categoriesService: CategoriesService) {}
+  constructor(@Inject(CategoriesService) private readonly categoriesService: CategoriesService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a category with a stable categoryId slug' })
   @ApiCreatedResponse({ type: CategoryResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
   @ApiConflictResponse({ description: 'categoryId already exists.' })
-  create(@Body() dto: CreateCategoryDto): Promise<Category> {
+  create(@Body(new DtoValidationPipe(CreateCategoryDto)) dto: CreateCategoryDto): Promise<Category> {
     return this.categoriesService.create(dto)
   }
 
   @Get()
   @ApiOperation({ summary: 'List categories' })
   @ApiOkResponse({ type: PaginatedCategoryResponseDto })
-  findAll(@Query() query: PaginationQueryDto): Promise<PaginatedResponse<Category>> {
+  findAll(
+    @Query(new DtoValidationPipe(PaginationQueryDto)) query: PaginationQueryDto,
+  ): Promise<PaginatedResponse<Category>> {
     return this.categoriesService.findAll(query)
   }
 
@@ -67,7 +71,7 @@ export class CategoriesController {
   @ApiNotFoundResponse({ description: 'Category does not exist.' })
   update(
     @Param('categoryId') categoryId: string,
-    @Body() dto: UpdateCategoryDto,
+    @Body(new DtoValidationPipe(UpdateCategoryDto)) dto: UpdateCategoryDto,
   ): Promise<Category> {
     return this.categoriesService.update(categoryId, dto)
   }

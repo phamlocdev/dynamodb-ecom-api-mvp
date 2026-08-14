@@ -1,35 +1,56 @@
 # DynamoDB E-commerce Learning MVP
 
-NestJS REST API để học DynamoDB với LocalStack. Giai đoạn hiện tại hoàn tất
-Product/Category CRUD và seed catalogue 400 sản phẩm, 40 danh mục theo multi-table design.
+NestJS REST API for learning DynamoDB with LocalStack. The server can run in two modes:
 
-## Chạy project
+- Local NestJS HTTP server for development.
+- AWS Lambda behind API Gateway REST API v1, deployed to LocalStack with AWS CDK.
 
-1. Tạo `.env` từ `.env.example` nếu chưa có. `LOCALSTACK_AUTH_TOKEN` phải được
-   đặt trong `.env` để Docker Compose truyền token vào LocalStack.
-2. Cài dependencies: `npm.cmd install`
-3. Khởi động DynamoDB LocalStack: `docker compose up -d`
-4. Tạo toàn bộ DynamoDB tables (an toàn khi chạy lặp): `npm.cmd run db:setup`
-5. Reseed all tables (replace existing seed-table data): `npm.cmd run db:seed`
-6. Chạy API: `npm.cmd run start:dev`
+## LocalStack Lambda flow
 
-Swagger: <http://localhost:8000/api>
+1. Create `.env` and set `LOCALSTACK_AUTH_TOKEN` if your LocalStack image requires it.
+2. Install dependencies: `npm install`
+3. Start LocalStack: `docker compose up -d`
+4. Bootstrap CDK assets in LocalStack once: `npm run infra:bootstrap`
+5. Deploy infrastructure and DynamoDB tables: `npm run infra:deploy`
+6. Seed demo data: `npm run db:seed`
+7. Use the `LocalStackApiGatewayUrl` printed by CDK output to call the API through LocalStack.
+   If local DNS does not resolve, use `LocalStackApiGatewayFallbackUrl`.
 
-## Endpoints hiện có
+Useful commands:
 
-| Method   | Endpoint                   | Mục đích                                          |
-| -------- | -------------------------- | ------------------------------------------------- |
-| `GET`    | `/health`                  | Xác minh NestJS kết nối được LocalStack DynamoDB  |
-| `POST`   | `/products`                | Tạo Product với giá VND integer                   |
-| `GET`    | `/products`                | Liệt kê catalogue bằng DynamoDB `Scan`            |
-| `GET`    | `/products/{productId}`    | Lấy một Product theo primary key                  |
-| `PATCH`  | `/products/{productId}`    | Cập nhật một hay nhiều trường Product             |
-| `DELETE` | `/products/{productId}`    | Xoá Product                                       |
-| `POST`   | `/categories`              | Tạo Category với stable slug, ví dụ `electronics` |
-| `GET`    | `/categories`              | Liệt kê Categories                                |
-| `GET`    | `/categories/{categoryId}` | Lấy một Category                                  |
-| `PATCH`  | `/categories/{categoryId}` | Cập nhật tên hoặc mô tả Category                  |
-| `DELETE` | `/categories/{categoryId}` | Xoá Category; không cascade sang Products         |
+```bash
+npm run infra:synth
+npm run infra:bootstrap
+npm run infra:deploy
+npm run infra:destroy
+```
 
-`GET /products` chưa có filter, search, sort hay pagination. Đây là giới hạn
-có chủ đích để học `Scan` trước khi thiết kế GSI/`Query` ở các unit tiếp theo.
+## Local NestJS development
+
+Run the same API directly on your machine:
+
+```bash
+npm run start:dev
+```
+
+Local API: <http://localhost:8000>
+
+Swagger is local-only: <http://localhost:8000/api>
+
+`npm run db:setup` is kept as a manual fallback for creating tables outside CDK. The recommended path is `npm run infra:deploy`.
+
+## Endpoints
+
+| Method   | Endpoint                   | Purpose                                            |
+| -------- | -------------------------- | -------------------------------------------------- |
+| `GET`    | `/health`                  | Check NestJS and LocalStack DynamoDB connectivity. |
+| `POST`   | `/products`                | Create a product with VND integer price.           |
+| `GET`    | `/products`                | List products with cursor pagination and filters.  |
+| `GET`    | `/products/{productId}`    | Get one product by primary key.                    |
+| `PATCH`  | `/products/{productId}`    | Update mutable product fields.                     |
+| `DELETE` | `/products/{productId}`    | Delete a product.                                  |
+| `POST`   | `/categories`              | Create a category with a stable slug.              |
+| `GET`    | `/categories`              | List categories.                                   |
+| `GET`    | `/categories/{categoryId}` | Get one category.                                  |
+| `PATCH`  | `/categories/{categoryId}` | Update category name or description.               |
+| `DELETE` | `/categories/{categoryId}` | Delete a category.                                 |
