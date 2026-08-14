@@ -23,6 +23,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger'
 import { Category } from './category.types'
+import { Public } from '../auth/public.decorator'
+import { Role } from '../auth/roles.enum'
+import { Roles } from '../auth/roles.decorator'
 import { CategoriesService } from './categories.service'
 import { CategoryResponseDto, PaginatedCategoryResponseDto } from './dto/category-response.dto'
 import { CreateCategoryDto } from './dto/create-category.dto'
@@ -37,6 +40,7 @@ export class CategoriesController {
   constructor(@Inject(CategoriesService) private readonly categoriesService: CategoriesService) {}
 
   @Post()
+  @Roles(Role.MANAGER, Role.ADMIN)
   @ApiOperation({ summary: 'Create a category with a stable categoryId slug' })
   @ApiCreatedResponse({ type: CategoryResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
@@ -46,6 +50,7 @@ export class CategoriesController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'List categories' })
   @ApiOkResponse({ type: PaginatedCategoryResponseDto })
   findAll(
@@ -55,6 +60,7 @@ export class CategoriesController {
   }
 
   @Get(':categoryId')
+  @Public()
   @ApiOperation({ summary: 'Get one category by categoryId' })
   @ApiParam({ name: 'categoryId', example: 'electronics' })
   @ApiOkResponse({ type: CategoryResponseDto })
@@ -64,6 +70,7 @@ export class CategoriesController {
   }
 
   @Patch(':categoryId')
+  @Roles(Role.MANAGER, Role.ADMIN)
   @ApiOperation({ summary: 'Update category name or description' })
   @ApiParam({ name: 'categoryId', example: 'electronics' })
   @ApiOkResponse({ type: CategoryResponseDto })
@@ -77,6 +84,7 @@ export class CategoriesController {
   }
 
   @Delete(':categoryId')
+  @Roles(Role.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Delete a category',

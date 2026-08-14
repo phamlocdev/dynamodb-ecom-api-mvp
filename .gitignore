@@ -4,3 +4,4 @@ coverage/
 cdk.out/
 .env
 localstack-data*/
+localstack-outputs.json

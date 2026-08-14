@@ -1,22 +1,20 @@
 import serverlessExpress from '@codegenie/serverless-express'
-import { Context, Handler, ProxyCallback, APIGatewayProxyEvent } from 'aws-lambda'
+import { Context, APIGatewayProxyEventV2 } from 'aws-lambda'
 import { createNestApp } from './app.bootstrap'
 
-let cachedHandler: Handler
+type PromiseHandler = (event: APIGatewayProxyEventV2, context: Context) => Promise<unknown>
 
-async function bootstrap(): Promise<Handler> {
+let cachedHandler: PromiseHandler
+
+async function bootstrap(): Promise<PromiseHandler> {
   const app = await createNestApp()
   await app.init()
 
   const expressInstance = app.getHttpAdapter().getInstance()
-  return serverlessExpress({ app: expressInstance })
+  return serverlessExpress({ app: expressInstance }) as any
 }
 
-export const handler = async (
-  event: APIGatewayProxyEvent,
-  context: Context,
-  callback: ProxyCallback,
-): Promise<unknown> => {
+export const handler = async (event: APIGatewayProxyEventV2, context: Context): Promise<unknown> => {
   cachedHandler ??= await bootstrap()
-  return cachedHandler(event, context, callback)
+  return cachedHandler(event, context)
 }

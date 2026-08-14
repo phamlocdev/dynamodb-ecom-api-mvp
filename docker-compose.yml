@@ -1,11 +1,11 @@
 services:
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:2026.07.0
     container_name: localstack
     ports:
       - '4566:4566'
     environment:
-      SERVICES: dynamodb,lambda,apigateway,iam,cloudformation,s3,sts,logs,ssm,ecr
+      SERVICES: dynamodb,lambda,apigateway,iam,cloudformation,s3,sts,logs,ssm,ecr,cognito-idp,cloudfront
       DEBUG: 0
       AWS_DEFAULT_REGION: ap-southeast-1
       AWS_ACCESS_KEY_ID: test
