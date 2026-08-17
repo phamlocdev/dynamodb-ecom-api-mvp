@@ -21,6 +21,8 @@ export class ServerLocalStack extends cdk.Stack {
       callbackUrls: env.callbackUrls,
       logoutUrls: env.logoutUrls,
       hostedUiDomainPrefix: env.hostedUiDomainPrefix,
+      googleClientId: env.googleClientId,
+      googleClientSecret: env.googleClientSecret,
     })
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
@@ -34,6 +36,7 @@ export class ServerLocalStack extends cdk.Stack {
       apiHandler: apiLambda.apiHandler,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
+      clientOrigins: env.clientOrigins,
     })
 
     new S3Construct(this, 'Storage')

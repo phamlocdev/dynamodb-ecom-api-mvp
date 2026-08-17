@@ -20,11 +20,12 @@ function main(): void {
   })
 
   updateEnvFile(clientEnvPath, {
-    BACKEND_API_URL: requireOutput(outputs, 'LocalStackApiGatewayUrl'),
-    COGNITO_REGION: region,
-    COGNITO_USER_POOL_ID: requireOutput(outputs, 'CognitoUserPoolId'),
-    COGNITO_CLIENT_ID: requireOutput(outputs, 'CognitoClientId'),
-    COGNITO_DOMAIN_URL: requireOutput(outputs, 'HostedUiDomain'),
+    NEXT_PUBLIC_API_GATEWAY_BASE_URL: requireOutput(outputs, 'LocalStackApiGatewayUrl'),
+    NEXT_PUBLIC_COGNITO_REGION: region,
+    NEXT_PUBLIC_COGNITO_USER_POOL_ID: requireOutput(outputs, 'CognitoUserPoolId'),
+    NEXT_PUBLIC_COGNITO_CLIENT_ID: requireOutput(outputs, 'CognitoClientId'),
+    NEXT_PUBLIC_COGNITO_DOMAIN_URL: requireOutput(outputs, 'HostedUiDomain'),
+    NEXT_PUBLIC_COGNITO_USER_POOL_ENDPOINT: 'http://localhost.localstack.cloud:4566',
   })
 
   console.log(`Updated ${relativeToWorkspace(outputsPath)}.`)

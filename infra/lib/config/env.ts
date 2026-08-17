@@ -1,4 +1,5 @@
 import {
+  defaultClientOrigin,
   defaultHostedUiCallbackUrl,
   defaultHostedUiDomainPrefix,
   defaultLogoutUrl,
@@ -8,6 +9,9 @@ export interface LocalStackInfraEnv {
   callbackUrls: string[]
   logoutUrls: string[]
   hostedUiDomainPrefix: string
+  clientOrigins: string[]
+  googleClientId?: string
+  googleClientSecret?: string
 }
 
 export function getLocalStackInfraEnv(): LocalStackInfraEnv {
@@ -15,6 +19,9 @@ export function getLocalStackInfraEnv(): LocalStackInfraEnv {
     callbackUrls: splitCsvEnv('CLIENT_COGNITO_CALLBACK_URLS', [defaultHostedUiCallbackUrl]),
     logoutUrls: splitCsvEnv('CLIENT_COGNITO_LOGOUT_URLS', [defaultLogoutUrl]),
     hostedUiDomainPrefix: process.env.COGNITO_DOMAIN_PREFIX ?? defaultHostedUiDomainPrefix,
+    clientOrigins: splitCsvEnv('CLIENT_CORS_ORIGINS', [defaultClientOrigin]),
+    googleClientId: process.env.GOOGLE_CLIENT_ID,
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET,
   }
 }
 

@@ -13,6 +13,8 @@ export interface CognitoConstructProps {
   callbackUrls: string[]
   logoutUrls: string[]
   hostedUiDomainPrefix: string
+  googleClientId?: string
+  googleClientSecret?: string
 }
 
 export class CognitoConstruct extends Construct {
@@ -63,6 +65,21 @@ export class CognitoConstruct extends Construct {
       this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, postConfirmationHandler)
     }
 
+    const supportedIdentityProviders = [cognito.UserPoolClientIdentityProvider.COGNITO]
+    const googleProvider =
+      props.googleClientId && props.googleClientSecret
+        ? new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleProvider', {
+            userPool: this.userPool,
+            clientId: props.googleClientId,
+            clientSecretValue: cdk.SecretValue.unsafePlainText(props.googleClientSecret),
+            scopes: ['openid', 'email', 'profile'],
+          })
+        : undefined
+
+    if (googleProvider) {
+      supportedIdentityProviders.push(cognito.UserPoolClientIdentityProvider.GOOGLE)
+    }
+
     this.userPoolClient = this.userPool.addClient('WebAppClient', {
       authFlows: {
         userPassword: true,
@@ -74,7 +91,7 @@ export class CognitoConstruct extends Construct {
       refreshTokenValidity: cdk.Duration.days(30),
       refreshTokenRotationGracePeriod: cdk.Duration.seconds(30),
       enableTokenRevocation: true,
-      supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+      supportedIdentityProviders,
       oAuth: {
         flows: {
           authorizationCodeGrant: true,
@@ -85,6 +102,10 @@ export class CognitoConstruct extends Construct {
         defaultRedirectUri: props.callbackUrls[0],
       },
     })
+
+    if (googleProvider) {
+      this.userPoolClient.node.addDependency(googleProvider)
+    }
 
     this.userPoolDomain = this.userPool.addDomain('HostedUiDomain', {
       cognitoDomain: {

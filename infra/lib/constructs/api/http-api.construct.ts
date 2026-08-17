@@ -13,6 +13,7 @@ export interface HttpApiConstructProps {
   apiHandler: lambda.IFunction
   userPoolId: string
   userPoolClientId: string
+  clientOrigins: string[]
 }
 
 export class HttpApiConstruct extends Construct {
@@ -28,6 +29,17 @@ export class HttpApiConstruct extends Construct {
     this.api = new apigatewayv2.HttpApi(this, 'NestHttpApi', {
       apiName: 'nestjs-ecommerce-local',
       createDefaultStage: true,
+      corsPreflight: {
+        allowOrigins: props.clientOrigins,
+        allowMethods: [
+          apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.POST,
+          apigatewayv2.CorsHttpMethod.PATCH,
+          apigatewayv2.CorsHttpMethod.DELETE,
+          apigatewayv2.CorsHttpMethod.OPTIONS,
+        ],
+        allowHeaders: ['authorization', 'content-type'],
+      },
     })
 
     const integration = new integrations.HttpLambdaIntegration(
