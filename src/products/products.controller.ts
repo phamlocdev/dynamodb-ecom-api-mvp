@@ -27,6 +27,7 @@ import { CreateProductDto } from './dto/create-product.dto'
 import { Public } from '../auth/public.decorator'
 import { Role } from '../auth/roles.enum'
 import { Roles } from '../auth/roles.decorator'
+import { ApiAuth } from '../auth/api-auth.decorator'
 import { ListProductsQueryDto } from './dto/list-products-query.dto'
 import { PaginatedProductResponseDto, ProductResponseDto } from './dto/product-response.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
@@ -42,6 +43,7 @@ export class ProductsController {
 
   @Post()
   @Roles(Role.MANAGER, Role.ADMIN)
+  @ApiAuth()
   @ApiOperation({ summary: 'Create a product' })
   @ApiCreatedResponse({ type: ProductResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
@@ -115,6 +117,7 @@ export class ProductsController {
 
   @Patch(':productId')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @ApiAuth()
   @ApiOperation({ summary: 'Update one or more mutable product fields' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiOkResponse({ type: ProductResponseDto })
@@ -130,6 +133,7 @@ export class ProductsController {
   @Delete(':productId')
   @Roles(Role.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiAuth()
   @ApiOperation({ summary: 'Delete a product' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiNoContentResponse({ description: 'Product deleted.' })

@@ -5,7 +5,7 @@ services:
     ports:
       - '4566:4566'
     environment:
-      SERVICES: dynamodb,lambda,apigateway,iam,cloudformation,s3,sts,logs,ssm,ecr,cognito-idp,cloudfront
+      SERVICES: dynamodb,sqs,lambda,apigateway,iam,cloudformation,s3,sts,logs,ssm,ecr,cognito-idp,cloudfront
       DEBUG: 0
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}

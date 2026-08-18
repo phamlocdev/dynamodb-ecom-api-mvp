@@ -36,6 +36,19 @@ export async function createNestApp(
       .setTitle('DynamoDB E-commerce Learning API')
       .setDescription('REST API for learning DynamoDB with LocalStack')
       .setVersion('1.0')
+      // Thêm Bearer token auth vào Swagger UI
+      // → Hiện nút "Authorize 🔒" ở góc phải Swagger UI
+      // → Paste access_token (từ POST /auth/token) vào đây
+      // → Tất cả requests sẽ tự động đính kèm header: Authorization: Bearer <token>
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Paste the access_token obtained from POST /auth/token',
+        },
+        'cognito-jwt', // security scheme name — dùng trong @ApiBearerAuth('cognito-jwt')
+      )
       .build()
     const document = SwaggerModule.createDocument(app, swaggerConfig)
     SwaggerModule.setup('api', app, document)
