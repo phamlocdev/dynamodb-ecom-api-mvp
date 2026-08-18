@@ -1,0 +1,1 @@
+export const COGNITO_VERIFIER = Symbol('COGNITO_VERIFIER')

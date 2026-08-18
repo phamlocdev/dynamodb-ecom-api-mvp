@@ -4,6 +4,14 @@ import { NestExpressApplication } from '@nestjs/platform-express'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { AppModule } from './app.module'
 
+const { eventContext } = require('@codegenie/serverless-express/src/middleware') as {
+  eventContext: (options?: { reqPropKey?: string; deleteHeaders?: boolean }) => (
+    req: unknown,
+    res: unknown,
+    next: () => void,
+  ) => void
+}
+
 export interface BootstrapOptions {
   enableSwagger?: boolean
 }
@@ -20,6 +28,8 @@ export async function createNestApp(
       forbidNonWhitelisted: true,
     }),
   )
+
+  app.use(eventContext({ reqPropKey: 'apiGateway' }))
 
   if (options.enableSwagger) {
     const swaggerConfig = new DocumentBuilder()

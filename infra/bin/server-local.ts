@@ -1,6 +1,7 @@
 #!/usr/bin/env node
+import 'dotenv/config'
 import * as cdk from 'aws-cdk-lib'
-import { ServerLocalStack } from '../lib/server-local-stack'
+import { ServerLocalStack } from '../lib/stacks/server-local-stack'
 
 const app = new cdk.App()
 

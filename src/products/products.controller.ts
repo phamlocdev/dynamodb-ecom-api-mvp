@@ -24,6 +24,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger'
 import { CreateProductDto } from './dto/create-product.dto'
+import { Public } from '../auth/public.decorator'
+import { Role } from '../auth/roles.enum'
+import { Roles } from '../auth/roles.decorator'
 import { ListProductsQueryDto } from './dto/list-products-query.dto'
 import { PaginatedProductResponseDto, ProductResponseDto } from './dto/product-response.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
@@ -38,6 +41,7 @@ export class ProductsController {
   constructor(@Inject(ProductsService) private readonly productsService: ProductsService) {}
 
   @Post()
+  @Roles(Role.MANAGER, Role.ADMIN)
   @ApiOperation({ summary: 'Create a product' })
   @ApiCreatedResponse({ type: ProductResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
@@ -47,6 +51,7 @@ export class ProductsController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({
     summary: 'List products',
     description:
@@ -99,6 +104,7 @@ export class ProductsController {
   }
 
   @Get(':productId')
+  @Public()
   @ApiOperation({ summary: 'Get one product by its primary key' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiOkResponse({ type: ProductResponseDto })
@@ -108,6 +114,7 @@ export class ProductsController {
   }
 
   @Patch(':productId')
+  @Roles(Role.MANAGER, Role.ADMIN)
   @ApiOperation({ summary: 'Update one or more mutable product fields' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiOkResponse({ type: ProductResponseDto })
@@ -121,6 +128,7 @@ export class ProductsController {
   }
 
   @Delete(':productId')
+  @Roles(Role.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a product' })
   @ApiParam({ name: 'productId', format: 'uuid' })
