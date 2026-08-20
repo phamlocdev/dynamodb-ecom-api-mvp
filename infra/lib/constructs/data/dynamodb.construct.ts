@@ -1,11 +1,25 @@
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import { Construct } from 'constructs'
-import { categoriesTableName, productsTableName } from '../../config/constants'
+import {
+  cartItemsTableName,
+  cartsTableName,
+  categoriesTableName,
+  inventoryTableName,
+  orderItemsTableName,
+  ordersEntityType,
+  ordersTableName,
+  productsTableName,
+} from '../../config/constants'
 
 export class DynamoDbConstruct extends Construct {
   readonly productsTable: dynamodb.Table
   readonly categoriesTable: dynamodb.Table
+  readonly cartsTable: dynamodb.Table
+  readonly cartItemsTable: dynamodb.Table
+  readonly ordersTable: dynamodb.Table
+  readonly orderItemsTable: dynamodb.Table
+  readonly inventoryTable: dynamodb.Table
 
   constructor(scope: Construct, id: string) {
     super(scope, id)
@@ -22,6 +36,69 @@ export class DynamoDbConstruct extends Construct {
       partitionKey: { name: 'categoryId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.cartsTable = new dynamodb.Table(this, 'CartsTable', {
+      tableName: cartsTableName,
+      partitionKey: { name: 'customerId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'cartId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.cartItemsTable = new dynamodb.Table(this, 'CartItemsTable', {
+      tableName: cartItemsTableName,
+      partitionKey: { name: 'cartId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'productId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.ordersTable = new dynamodb.Table(this, 'OrdersTable', {
+      tableName: ordersTableName,
+      partitionKey: { name: 'orderId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_OrderStatusCreatedAt',
+      partitionKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    })
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_OrderCreatedAt',
+      partitionKey: { name: 'entityType', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    })
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_CustomerOrders',
+      partitionKey: { name: 'customerId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    })
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_CustomerEmailOrders',
+      partitionKey: { name: 'customerEmail', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    })
+
+    this.orderItemsTable = new dynamodb.Table(this, 'OrderItemsTable', {
+      tableName: orderItemsTableName,
+      partitionKey: { name: 'orderId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'lineId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.inventoryTable = new dynamodb.Table(this, 'InventoryTable', {
+      tableName: inventoryTableName,
+      partitionKey: { name: 'productId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    new cdk.CfnOutput(this, 'OrdersEntityType', {
+      value: ordersEntityType,
     })
   }
 }
