@@ -65,4 +65,48 @@ export function registerApiRoutes(
     integration,
     ...localRouteAuthOptions(authorizer),
   })
+
+  api.addRoutes({
+    path: '/carts',
+    methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.POST],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/carts/{cartId}',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/carts/{cartId}/items',
+    methods: [apigatewayv2.HttpMethod.POST],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/carts/{cartId}/items/{productId}',
+    methods: [apigatewayv2.HttpMethod.PATCH, apigatewayv2.HttpMethod.DELETE],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+
+  api.addRoutes({
+    path: '/orders',
+    methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.POST],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/pay',
+    methods: [apigatewayv2.HttpMethod.POST],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
 }

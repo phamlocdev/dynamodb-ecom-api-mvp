@@ -1,13 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
+  AdminGetUserCommand,
   AdminListGroupsForUserCommand,
   CognitoIdentityProviderClient,
   ListUsersCommand,
   type AttributeType,
   type UserType,
 } from '@aws-sdk/client-cognito-identity-provider'
-import { ManagedUser } from './user.types'
+import { CustomerProfile, ManagedUser } from './user.types'
 
 @Injectable()
 export class UsersService {
@@ -69,6 +70,8 @@ export class UsersService {
       username: user.Username ?? '',
       enabled: user.Enabled ?? false,
       status: user.UserStatus,
+      name: attributes.name,
+      sub: attributes.sub,
       email: attributes.email,
       emailVerified: attributes.email_verified === 'true',
       groups: (groupsResponse.Groups ?? []).flatMap((group) =>
@@ -76,6 +79,23 @@ export class UsersService {
       ),
       createdAt: user.UserCreateDate?.toISOString(),
       updatedAt: user.UserLastModifiedDate?.toISOString(),
+    }
+  }
+
+  async findCustomerProfileByUsername(username: string): Promise<CustomerProfile> {
+    const response = await this.cognitoClient.send(
+      new AdminGetUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: username,
+      }),
+    )
+
+    const attributes = toAttributeMap(response.UserAttributes ?? [])
+    return {
+      username,
+      email: attributes.email,
+      name: attributes.name,
+      sub: attributes.sub,
     }
   }
 }

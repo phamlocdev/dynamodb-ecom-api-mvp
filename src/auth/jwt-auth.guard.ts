@@ -58,6 +58,7 @@ function toAuthenticatedUser(claims: JwtAuthorizerClaims): AuthenticatedUser {
     sub,
     username,
     email: readString(claims.email),
+    name: readString(claims.name),
     groups,
     tokenUse: 'access',
     scope: scopes,

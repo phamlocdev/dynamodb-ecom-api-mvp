@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { PageSize } from './pagination-query.dto'
 
-export type PaginationResource = 'products' | 'categories'
+export type PaginationResource = 'products' | 'categories' | 'orders'
 export type CursorKey = Record<string, unknown> | null
 export type CursorScope = Record<string, string>
 
