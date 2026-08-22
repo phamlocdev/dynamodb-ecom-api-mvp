@@ -43,13 +43,17 @@ export class OrdersQueueService {
     )
   }
 
-  async enqueueReleaseReservation(message: ReleaseReservationMessage): Promise<void> {
+  async enqueueReleaseReservation(
+    message: ReleaseReservationMessage,
+    delaySeconds = 0,
+  ): Promise<void> {
     await this.sqsClient.send(
       new SendMessageCommand({
         QueueUrl: this.releaseReservationQueueUrl,
         MessageBody: JSON.stringify(message),
         MessageGroupId: message.customerId,
         MessageDeduplicationId: `${message.orderId}:${message.targetStatus}`,
+        DelaySeconds: delaySeconds,
       }),
     )
   }

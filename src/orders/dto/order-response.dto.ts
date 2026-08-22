@@ -35,6 +35,9 @@ export class OrderResponseDto {
   reservedAt?: string
 
   @ApiPropertyOptional()
+  paymentExpiresAt?: number
+
+  @ApiPropertyOptional()
   paymentRequestedAt?: string
 
   @ApiPropertyOptional()

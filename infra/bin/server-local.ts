@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-import 'dotenv/config'
 import * as cdk from 'aws-cdk-lib'
+import { getLocalStackInfraEnv } from '../lib/config/env'
 import { ServerLocalStack } from '../lib/stacks/server-local-stack'
 
 const app = new cdk.App()
+const infraEnv = getLocalStackInfraEnv()
 
 new ServerLocalStack(app, 'ServerLocalStack', {
   env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT ?? '000000000000',
-    region: 'ap-southeast-1',
+    account: infraEnv.account,
+    region: infraEnv.region,
   },
 })

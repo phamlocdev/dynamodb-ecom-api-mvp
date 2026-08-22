@@ -21,13 +21,12 @@ import { OrdersQueueService } from './orders.queue'
 import { CreateOrderDto } from './dto/create-order.dto'
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto'
 import { OrderStatus } from './order-status.enum'
-import { PaymentStatus } from './payment-status.enum'
 import {
-  Order,
-  OrderDetails,
-  OrderItem,
-  PlaceOrderMessage,
-} from './orders.types'
+  PAYMENT_WINDOW_EXPIRED_REASON,
+  resolvePaymentConfirmationTimeoutSeconds,
+} from './payment-reservation.config'
+import { PaymentStatus } from './payment-status.enum'
+import { Order, OrderDetails, OrderItem, PlaceOrderMessage } from './orders.types'
 
 const ORDERS_ENTITY_TYPE = 'ORDER'
 
@@ -35,6 +34,7 @@ const ORDERS_ENTITY_TYPE = 'ORDER'
 export class OrdersService {
   private readonly ordersTableName: string
   private readonly orderItemsTableName: string
+  private readonly paymentConfirmationTimeoutSeconds: number
 
   constructor(
     @Inject(DynamoDbService)
@@ -50,6 +50,9 @@ export class OrdersService {
   ) {
     this.ordersTableName = configService.get<string>('ORDERS_TABLE') ?? 'orders'
     this.orderItemsTableName = configService.get<string>('ORDER_ITEMS_TABLE') ?? 'order-items'
+    this.paymentConfirmationTimeoutSeconds = resolvePaymentConfirmationTimeoutSeconds(
+      configService.get<string>('PAYMENT_CONFIRMATION_SECONDS_TIMEOUT'),
+    )
   }
 
   async createOrderRequest(user: AuthenticatedUser, dto: CreateOrderDto): Promise<Order> {
@@ -190,8 +193,13 @@ export class OrdersService {
     if (order.paymentStatus === PaymentStatus.PROCESSING) {
       throw new BadRequestException(`Order ${orderId} is already processing payment.`)
     }
+    if (this.isPaymentExpired(order)) {
+      await this.enqueueReleaseForExpiredOrder(order)
+      throw new ConflictException(PAYMENT_WINDOW_EXPIRED_REASON)
+    }
 
     const paidAt = new Date().toISOString()
+    const nowEpochSeconds = toEpochSeconds(Date.now())
     const paymentTransactionId = `manualpay_${randomUUID()}`
 
     try {
@@ -202,10 +210,11 @@ export class OrdersService {
           UpdateExpression:
             'SET #status = :status, #paymentStatus = :paymentStatus, #paymentRequestedAt = :paymentRequestedAt, #paymentTransactionId = :paymentTransactionId, #paidAt = :paidAt, #updatedAt = :updatedAt REMOVE #paymentFailureReason',
           ConditionExpression:
-            '#status = :reserved AND (#paymentStatus = :notStarted OR #paymentStatus = :failed)',
+            '#status = :reserved AND (#paymentStatus = :notStarted OR #paymentStatus = :failed) AND #paymentExpiresAt > :now',
           ExpressionAttributeNames: {
             '#status': 'status',
             '#paymentStatus': 'paymentStatus',
+            '#paymentExpiresAt': 'paymentExpiresAt',
             '#paymentRequestedAt': 'paymentRequestedAt',
             '#paymentTransactionId': 'paymentTransactionId',
             '#paidAt': 'paidAt',
@@ -222,11 +231,17 @@ export class OrdersService {
             ':paymentTransactionId': paymentTransactionId,
             ':paidAt': paidAt,
             ':updatedAt': paidAt,
+            ':now': nowEpochSeconds,
           },
         }),
       )
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
+        const latestOrder = await this.getById(orderId)
+        if (this.isPaymentExpired(latestOrder)) {
+          await this.enqueueReleaseForExpiredOrder(latestOrder)
+          throw new ConflictException(PAYMENT_WINDOW_EXPIRED_REASON)
+        }
         throw new ConflictException(`Order ${orderId} cannot start payment in its current state.`)
       }
       throw error
@@ -266,15 +281,17 @@ export class OrdersService {
 
   async markReserved(orderId: string, totalAmount: number): Promise<void> {
     const timestamp = new Date().toISOString()
+    const paymentExpiresAt = toEpochSeconds(Date.now()) + this.paymentConfirmationTimeoutSeconds
     await this.dynamoDbService.documentClient.send(
       new UpdateCommand({
         TableName: this.ordersTableName,
         Key: { orderId },
         UpdateExpression:
-          'SET #status = :status, #reservedAt = :reservedAt, #totalAmount = :totalAmount, #paymentStatus = :paymentStatus, #updatedAt = :updatedAt',
+          'SET #status = :status, #reservedAt = :reservedAt, #paymentExpiresAt = :paymentExpiresAt, #totalAmount = :totalAmount, #paymentStatus = :paymentStatus, #updatedAt = :updatedAt',
         ExpressionAttributeNames: {
           '#status': 'status',
           '#reservedAt': 'reservedAt',
+          '#paymentExpiresAt': 'paymentExpiresAt',
           '#totalAmount': 'totalAmount',
           '#paymentStatus': 'paymentStatus',
           '#updatedAt': 'updatedAt',
@@ -282,6 +299,7 @@ export class OrdersService {
         ExpressionAttributeValues: {
           ':status': OrderStatus.RESERVED,
           ':reservedAt': timestamp,
+          ':paymentExpiresAt': paymentExpiresAt,
           ':totalAmount': totalAmount,
           ':paymentStatus': PaymentStatus.NOT_STARTED,
           ':updatedAt': timestamp,
@@ -386,7 +404,7 @@ export class OrdersService {
     )
   }
 
-  private async findOrderItems(orderId: string): Promise<OrderItem[]> {
+  async findOrderItems(orderId: string): Promise<OrderItem[]> {
     const response = await this.dynamoDbService.documentClient.send(
       new QueryCommand({
         TableName: this.orderItemsTableName,
@@ -398,6 +416,102 @@ export class OrdersService {
 
     return (response.Items ?? []) as OrderItem[]
   }
+
+  async findExpiredReservedOrders(
+    nowEpochSeconds: number,
+    limit: number,
+    exclusiveStartKey?: Record<string, unknown>,
+  ): Promise<{ items: Order[]; lastEvaluatedKey?: Record<string, unknown> }> {
+    const response = await this.dynamoDbService.documentClient.send(
+      new QueryCommand({
+        TableName: this.ordersTableName,
+        IndexName: 'GSI_OrderStatusPaymentExpiresAt',
+        KeyConditionExpression: '#status = :status AND #paymentExpiresAt <= :paymentExpiresAt',
+        ExpressionAttributeNames: {
+          '#status': 'status',
+          '#paymentExpiresAt': 'paymentExpiresAt',
+        },
+        ExpressionAttributeValues: {
+          ':status': OrderStatus.RESERVED,
+          ':paymentExpiresAt': nowEpochSeconds,
+        },
+        Limit: limit,
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    )
+
+    return {
+      items: (response.Items ?? []) as Order[],
+      lastEvaluatedKey: response.LastEvaluatedKey as Record<string, unknown> | undefined,
+    }
+  }
+
+  getPaymentConfirmationTimeoutSeconds(): number {
+    return this.paymentConfirmationTimeoutSeconds
+  }
+
+  async expireReservationIfUnpaid(orderId: string, paymentExpiresAt: number): Promise<boolean> {
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.ordersTableName,
+          Key: { orderId },
+          UpdateExpression:
+            'SET #status = :status, #failureReason = :failureReason, #updatedAt = :updatedAt',
+          ConditionExpression:
+            '#status = :reserved AND #paymentStatus <> :paid AND #paymentExpiresAt = :paymentExpiresAt',
+          ExpressionAttributeNames: {
+            '#status': 'status',
+            '#paymentStatus': 'paymentStatus',
+            '#paymentExpiresAt': 'paymentExpiresAt',
+            '#failureReason': 'failureReason',
+            '#updatedAt': 'updatedAt',
+          },
+          ExpressionAttributeValues: {
+            ':reserved': OrderStatus.RESERVED,
+            ':paid': PaymentStatus.PAID,
+            ':paymentExpiresAt': paymentExpiresAt,
+            ':status': OrderStatus.EXPIRED,
+            ':failureReason': PAYMENT_WINDOW_EXPIRED_REASON,
+            ':updatedAt': new Date().toISOString(),
+          },
+        }),
+      )
+      return true
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) {
+        return false
+      }
+      throw error
+    }
+  }
+
+  private isPaymentExpired(order: Order): boolean {
+    return Boolean(order.paymentExpiresAt && order.paymentExpiresAt <= toEpochSeconds(Date.now()))
+  }
+
+  private async enqueueReleaseForExpiredOrder(order: Order): Promise<void> {
+    if (order.status !== OrderStatus.RESERVED || !this.isPaymentExpired(order)) {
+      return
+    }
+
+    const items = await this.findOrderItems(order.orderId)
+    if (items.length === 0) {
+      return
+    }
+
+    await this.ordersQueueService.enqueueReleaseReservation({
+      orderId: order.orderId,
+      customerId: order.customerId,
+      items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+      targetStatus: OrderStatus.EXPIRED,
+      reason: PAYMENT_WINDOW_EXPIRED_REASON,
+    })
+  }
+}
+
+function toEpochSeconds(timestampMs: number): number {
+  return Math.floor(timestampMs / 1000)
 }
 
 function isConditionalCheckFailure(error: unknown): boolean {

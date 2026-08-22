@@ -4,7 +4,7 @@ import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import { Construct } from 'constructs'
-import { enableLocalStackCognitoTriggers } from '../../config/constants'
+import { getLocalStackInfraEnv } from '../../config/env'
 import { createNodejsBundling } from '../../shared/lambda-bundling'
 import { InfraRole } from '../../shared/roles'
 import { createUserPoolGroups } from './cognito-groups'
@@ -24,6 +24,7 @@ export class CognitoConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: CognitoConstructProps) {
     super(scope, id)
+    const infraEnv = getLocalStackInfraEnv()
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: true,
@@ -40,7 +41,7 @@ export class CognitoConstruct extends Construct {
       },
     })
 
-    if (enableLocalStackCognitoTriggers) {
+    if (infraEnv.enableLocalStackCognitoTriggers) {
       const postConfirmationHandler = new nodejs.NodejsFunction(this, 'PostConfirmationHandler', {
         runtime: lambda.Runtime.NODEJS_24_X,
         entry: path.join(
