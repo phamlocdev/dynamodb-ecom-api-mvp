@@ -4,7 +4,6 @@ import { CartsModule } from '../carts/carts.module'
 import { DynamoDbModule } from '../dynamodb/dynamodb.module'
 import { InventoryModule } from '../inventory/inventory.module'
 import { OrdersModule } from '../orders/orders.module'
-import { PaymentsModule } from '../payments/payments.module'
 import { ProductsModule } from '../products/products.module'
 import { UsersModule } from '../users/users.module'
 import { OrdersWorkerService } from './orders-worker.service'
@@ -18,7 +17,6 @@ import { OrdersWorkerService } from './orders-worker.service'
     CartsModule,
     InventoryModule,
     OrdersModule,
-    PaymentsModule,
   ],
   providers: [OrdersWorkerService],
   exports: [OrdersWorkerService],

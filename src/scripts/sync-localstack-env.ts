@@ -18,7 +18,6 @@ function main(): void {
     COGNITO_USER_POOL_ID: requireOutput(outputs, 'CognitoUserPoolId'),
     COGNITO_CLIENT_ID: requireOutput(outputs, 'CognitoClientId'),
     PLACE_ORDER_QUEUE_URL: requireOutput(outputs, 'PlaceOrderQueueUrl'),
-    PROCESS_PAYMENT_QUEUE_URL: requireOutput(outputs, 'ProcessPaymentQueueUrl'),
     RELEASE_RESERVATION_QUEUE_URL: requireOutput(outputs, 'ReleaseReservationQueueUrl'),
   })
 

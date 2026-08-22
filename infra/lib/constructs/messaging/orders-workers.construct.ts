@@ -12,7 +12,6 @@ import {
   inventoryTableName,
   orderItemsTableName,
   ordersTableName,
-  processPaymentQueueName,
   productsTableName,
   releaseReservationQueueName,
 } from '../../config/constants'
@@ -26,7 +25,6 @@ export interface OrdersWorkersConstructProps {
   orderItemsTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   placeOrderQueue: sqs.IQueue
-  processPaymentQueue: sqs.IQueue
   releaseReservationQueue: sqs.IQueue
   userPoolId: string
   userPoolClientId: string
@@ -34,7 +32,6 @@ export interface OrdersWorkersConstructProps {
 
 export class OrdersWorkersConstruct extends Construct {
   readonly placeOrderWorker: nodejs.NodejsFunction
-  readonly processPaymentWorker: nodejs.NodejsFunction
   readonly releaseReservationWorker: nodejs.NodejsFunction
 
   constructor(scope: Construct, id: string, props: OrdersWorkersConstructProps) {
@@ -51,12 +48,9 @@ export class OrdersWorkersConstruct extends Construct {
       COGNITO_IDP_ENDPOINT: 'http://host.docker.internal:4566',
       COGNITO_USER_POOL_ID: props.userPoolId,
       COGNITO_CLIENT_ID: props.userPoolClientId,
-      PROCESS_PAYMENT_QUEUE_URL: props.processPaymentQueue.queueUrl,
-      PROCESS_PAYMENT_QUEUE_NAME: processPaymentQueueName,
       RELEASE_RESERVATION_QUEUE_URL: props.releaseReservationQueue.queueUrl,
       RELEASE_RESERVATION_QUEUE_NAME: releaseReservationQueueName,
-      PLACE_ORDER_DELAY_MS: '10000',
-      MOCK_PAYMENT_DELAY_MS: '10000',
+      // PLACE_ORDER_DELAY_MS: '10000',
     }
 
     this.placeOrderWorker = new nodejs.NodejsFunction(this, 'PlaceOrderWorker', {
@@ -83,20 +77,6 @@ export class OrdersWorkersConstruct extends Construct {
       environment: sharedEnvironment,
     })
 
-    this.processPaymentWorker = new nodejs.NodejsFunction(this, 'ProcessPaymentWorker', {
-      runtime: lambda.Runtime.NODEJS_24_X,
-      entry: path.join(__dirname, '..', '..', '..', '..', 'src', 'payment-worker.ts'),
-      handler: 'handler',
-      timeout: cdk.Duration.seconds(60),
-      memorySize: 512,
-      bundling: createNodejsBundling({
-        afterBundling: () => removeGeneratedSourceArtifacts(),
-      }),
-      environment: {
-        ...sharedEnvironment,
-      },
-    })
-
     this.placeOrderWorker.addEventSource(
       new lambdaEventSources.SqsEventSource(props.placeOrderQueue, {
         batchSize: 1,
@@ -111,18 +91,7 @@ export class OrdersWorkersConstruct extends Construct {
       }),
     )
 
-    this.processPaymentWorker.addEventSource(
-      new lambdaEventSources.SqsEventSource(props.processPaymentQueue, {
-        batchSize: 1,
-        reportBatchItemFailures: true,
-      }),
-    )
-
-    const workerFunctions = [
-      this.placeOrderWorker,
-      this.processPaymentWorker,
-      this.releaseReservationWorker,
-    ]
+    const workerFunctions = [this.placeOrderWorker, this.releaseReservationWorker]
     const tables = [
       props.productsTable,
       props.cartsTable,
@@ -137,10 +106,7 @@ export class OrdersWorkersConstruct extends Construct {
     })
 
     props.placeOrderQueue.grantConsumeMessages(this.placeOrderWorker)
-    props.processPaymentQueue.grantConsumeMessages(this.processPaymentWorker)
     props.releaseReservationQueue.grantConsumeMessages(this.releaseReservationWorker)
-    props.processPaymentQueue.grantSendMessages(this.processPaymentWorker)
     props.releaseReservationQueue.grantSendMessages(this.placeOrderWorker)
-    props.releaseReservationQueue.grantSendMessages(this.processPaymentWorker)
   }
 }

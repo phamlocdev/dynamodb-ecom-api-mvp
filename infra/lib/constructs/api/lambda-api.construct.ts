@@ -13,7 +13,6 @@ import {
   orderItemsTableName,
   ordersTableName,
   placeOrderQueueName,
-  processPaymentQueueName,
   productsTableName,
   releaseReservationQueueName,
 } from '../../config/constants'
@@ -28,7 +27,6 @@ export interface LambdaApiConstructProps {
   orderItemsTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   placeOrderQueue: sqs.IQueue
-  processPaymentQueue: sqs.IQueue
   releaseReservationQueue: sqs.IQueue
   userPoolId: string
   userPoolClientId: string
@@ -63,8 +61,6 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         PLACE_ORDER_QUEUE_NAME: placeOrderQueueName,
-        PROCESS_PAYMENT_QUEUE_URL: props.processPaymentQueue.queueUrl,
-        PROCESS_PAYMENT_QUEUE_NAME: processPaymentQueueName,
         RELEASE_RESERVATION_QUEUE_URL: props.releaseReservationQueue.queueUrl,
         RELEASE_RESERVATION_QUEUE_NAME: releaseReservationQueueName,
       },
@@ -78,7 +74,6 @@ export class LambdaApiConstruct extends Construct {
     props.orderItemsTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
-    props.processPaymentQueue.grantSendMessages(this.apiHandler)
     props.releaseReservationQueue.grantSendMessages(this.apiHandler)
   }
 }

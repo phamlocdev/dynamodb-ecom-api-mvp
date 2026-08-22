@@ -6,8 +6,6 @@ import { CartsService } from '../carts/carts.service'
 import { CartStatus } from '../carts/cart-status.enum'
 import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
-import { PaymentsService } from '../payments/payments.service'
-import { PaymentStatus } from '../payments/payment-status.enum'
 import { ProductsService } from '../products/products.service'
 import { OrderStatus } from '../orders/order-status.enum'
 import { OrdersQueueService } from '../orders/orders.queue'
@@ -15,7 +13,6 @@ import { OrdersService } from '../orders/orders.service'
 import {
   OrderItem,
   PlaceOrderMessage,
-  ProcessPaymentMessage,
   ReleaseReservationMessage,
 } from '../orders/orders.types'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
@@ -34,8 +31,6 @@ export class OrdersWorkerService {
     private readonly inventoryService: InventoryService,
     @Inject(ProductsService)
     private readonly productsService: ProductsService,
-    @Inject(PaymentsService)
-    private readonly paymentsService: PaymentsService,
     @Inject(OrdersService)
     private readonly ordersService: OrdersService,
     @Inject(OrdersQueueService)
@@ -50,14 +45,19 @@ export class OrdersWorkerService {
   }
 
   async handlePlaceOrderBatch(event: SQSEvent): Promise<SQSBatchResponse> {
-    const failures = []
+    const failures: { itemIdentifier: string }[] = []
 
-    for (const record of event.Records) {
+    for (let index = 0; index < event.Records.length; index += 1) {
+      const record = event.Records[index]
+
       try {
         await this.handlePlaceOrderRecord(record)
       } catch (error) {
         this.logger.error(`Failed place-order record ${record.messageId}`, error)
-        failures.push({ itemIdentifier: record.messageId })
+        for (let failedIndex = index; failedIndex < event.Records.length; failedIndex += 1) {
+          failures.push({ itemIdentifier: event.Records[failedIndex].messageId })
+        }
+        break
       }
     }
 
@@ -74,23 +74,6 @@ export class OrdersWorkerService {
         await this.handleReleaseReservationRecord(record)
       } catch (error) {
         this.logger.error(`Failed release-reservation record ${record.messageId}`, error)
-        failures.push({ itemIdentifier: record.messageId })
-      }
-    }
-
-    return {
-      batchItemFailures: failures,
-    }
-  }
-
-  async handleProcessPaymentBatch(event: SQSEvent): Promise<SQSBatchResponse> {
-    const failures = []
-
-    for (const record of event.Records) {
-      try {
-        await this.handleProcessPaymentRecord(record)
-      } catch (error) {
-        this.logger.error(`Failed process-payment record ${record.messageId}`, error)
         failures.push({ itemIdentifier: record.messageId })
       }
     }
@@ -133,6 +116,7 @@ export class OrdersWorkerService {
       const productSnapshots = await Promise.all(
         cartItems.map(async (item) => {
           const product = await this.productsService.findOne(item.productId)
+
           await this.inventoryService.reserve(item.productId, item.quantity)
           reservedItems.push({ productId: item.productId, quantity: item.quantity })
           return { item, product }
@@ -165,6 +149,7 @@ export class OrdersWorkerService {
       await this.ordersService.markReserved(order.orderId, totalAmount)
     } catch (error) {
       const failureReason = error instanceof Error ? error.message : 'Failed to process order.'
+
       await this.ordersService.markFailed(order.orderId, OrderStatus.FAILED, failureReason)
 
       if (reservedItems.length > 0) {
@@ -176,7 +161,11 @@ export class OrdersWorkerService {
           reason: failureReason,
         })
       }
-      throw error
+
+      // Only rethrow the error if it's not a ConflictException, which indicates insufficient inventory.
+      if (!(error instanceof ConflictException)) {
+        throw error
+      }
     }
   }
 
@@ -184,37 +173,6 @@ export class OrdersWorkerService {
     const message = parseJson<ReleaseReservationMessage>(record.body)
     await this.inventoryService.release(message.items)
     await this.ordersService.updateStatus(message.orderId, message.targetStatus, message.reason)
-  }
-
-  private async handleProcessPaymentRecord(record: SQSRecord): Promise<void> {
-    const message = parseJson<ProcessPaymentMessage>(record.body)
-    const order = await this.ordersService.getById(message.orderId)
-
-    if (order.status === OrderStatus.CONFIRMED) {
-      return
-    }
-    if (
-      order.paymentStatus !== PaymentStatus.PROCESSING ||
-      order.paymentAttemptId !== message.paymentAttemptId
-    ) {
-      return
-    }
-
-    const result = await this.paymentsService.processMockPayment(order.orderId)
-    if (result.success && result.transactionId) {
-      await this.ordersService.markPaymentSucceeded(
-        order.orderId,
-        message.paymentAttemptId,
-        result.transactionId,
-      )
-      return
-    }
-
-    await this.ordersService.markPaymentFailed(
-      order.orderId,
-      message.paymentAttemptId,
-      result.failureReason ?? 'Mock payment failed.',
-    )
   }
 }
 

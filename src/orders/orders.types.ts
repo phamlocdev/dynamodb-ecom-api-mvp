@@ -1,5 +1,5 @@
 import { OrderStatus } from './order-status.enum'
-import { PaymentStatus } from '../payments/payment-status.enum'
+import { PaymentStatus } from './payment-status.enum'
 
 export interface Order {
   orderId: string
@@ -56,11 +56,4 @@ export interface ReleaseReservationMessage {
   }>
   targetStatus: OrderStatus
   reason?: string
-}
-
-export interface ProcessPaymentMessage {
-  orderId: string
-  customerId: string
-  paymentAttemptId: string
-  requestedAt: string
 }

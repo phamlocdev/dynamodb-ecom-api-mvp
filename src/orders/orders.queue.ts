@@ -1,13 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs'
-import { PlaceOrderMessage, ProcessPaymentMessage, ReleaseReservationMessage } from './orders.types'
+import { PlaceOrderMessage, ReleaseReservationMessage } from './orders.types'
 
 @Injectable()
 export class OrdersQueueService {
   private readonly sqsClient: SQSClient
   private readonly placeOrderQueueUrl: string
-  private readonly processPaymentQueueUrl: string
   private readonly releaseReservationQueueUrl: string
 
   constructor(@Inject(ConfigService) configService: ConfigService) {
@@ -20,7 +19,6 @@ export class OrdersQueueService {
     const secretAccessKey = configService.get<string>('AWS_SECRET_ACCESS_KEY') ?? 'test'
 
     this.placeOrderQueueUrl = configService.get<string>('PLACE_ORDER_QUEUE_URL') ?? ''
-    this.processPaymentQueueUrl = configService.get<string>('PROCESS_PAYMENT_QUEUE_URL') ?? ''
     this.releaseReservationQueueUrl =
       configService.get<string>('RELEASE_RESERVATION_QUEUE_URL') ?? ''
 
@@ -39,7 +37,7 @@ export class OrdersQueueService {
       new SendMessageCommand({
         QueueUrl: this.placeOrderQueueUrl,
         MessageBody: JSON.stringify(message),
-        MessageGroupId: 'Order', // MessageGroupId: 'ABC'
+        MessageGroupId: message.customerId,
         MessageDeduplicationId: message.deduplicationKey,
       }),
     )
@@ -52,17 +50,6 @@ export class OrdersQueueService {
         MessageBody: JSON.stringify(message),
         MessageGroupId: message.customerId,
         MessageDeduplicationId: `${message.orderId}:${message.targetStatus}`,
-      }),
-    )
-  }
-
-  async enqueueProcessPayment(message: ProcessPaymentMessage): Promise<void> {
-    await this.sqsClient.send(
-      new SendMessageCommand({
-        QueueUrl: this.processPaymentQueueUrl,
-        MessageBody: JSON.stringify(message),
-        MessageGroupId: message.customerId,
-        MessageDeduplicationId: message.paymentAttemptId,
       }),
     )
   }

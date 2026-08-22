@@ -9,8 +9,6 @@ export const placeOrderQueueName = 'place-order.fifo'
 export const placeOrderDlqName = 'place-order-dlq.fifo'
 export const releaseReservationQueueName = 'release-reservation.fifo'
 export const releaseReservationDlqName = 'release-reservation-dlq.fifo'
-export const processPaymentQueueName = 'process-payment.fifo'
-export const processPaymentDlqName = 'process-payment-dlq.fifo'
 export const ordersEntityType = 'ORDER'
 
 export const defaultHostedUiCallbackUrl = 'http://localhost:3000/auth/callback'

@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { PaginatedResponseDto } from '../../pagination/pagination.types'
 import { OrderStatus } from '../order-status.enum'
-import { PaymentStatus } from '../../payments/payment-status.enum'
+import { PaymentStatus } from '../payment-status.enum'
 
 export class OrderResponseDto {
   @ApiProperty({ format: 'uuid' })
@@ -96,7 +96,7 @@ export class TriggerPaymentResponseDto {
   @ApiProperty({ format: 'uuid' })
   orderId!: string
 
-  @ApiProperty({ enum: PaymentStatus, example: PaymentStatus.PROCESSING })
+  @ApiProperty({ enum: PaymentStatus, example: PaymentStatus.PAID })
   paymentStatus!: PaymentStatus
 }
 

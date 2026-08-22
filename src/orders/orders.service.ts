@@ -17,17 +17,16 @@ import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
 import { UsersService } from '../users/users.service'
-import { PaymentStatus } from '../payments/payment-status.enum'
 import { OrdersQueueService } from './orders.queue'
 import { CreateOrderDto } from './dto/create-order.dto'
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto'
 import { OrderStatus } from './order-status.enum'
+import { PaymentStatus } from './payment-status.enum'
 import {
   Order,
   OrderDetails,
   OrderItem,
   PlaceOrderMessage,
-  ProcessPaymentMessage,
 } from './orders.types'
 
 const ORDERS_ENTITY_TYPE = 'ORDER'
@@ -192,8 +191,8 @@ export class OrdersService {
       throw new BadRequestException(`Order ${orderId} is already processing payment.`)
     }
 
-    const paymentAttemptId = randomUUID()
-    const paymentRequestedAt = new Date().toISOString()
+    const paidAt = new Date().toISOString()
+    const paymentTransactionId = `manualpay_${randomUUID()}`
 
     try {
       await this.dynamoDbService.documentClient.send(
@@ -201,14 +200,15 @@ export class OrdersService {
           TableName: this.ordersTableName,
           Key: { orderId },
           UpdateExpression:
-            'SET #paymentStatus = :paymentStatus, #paymentAttemptId = :paymentAttemptId, #paymentRequestedAt = :paymentRequestedAt, #updatedAt = :updatedAt REMOVE #paymentFailureReason',
+            'SET #status = :status, #paymentStatus = :paymentStatus, #paymentRequestedAt = :paymentRequestedAt, #paymentTransactionId = :paymentTransactionId, #paidAt = :paidAt, #updatedAt = :updatedAt REMOVE #paymentFailureReason',
           ConditionExpression:
             '#status = :reserved AND (#paymentStatus = :notStarted OR #paymentStatus = :failed)',
           ExpressionAttributeNames: {
             '#status': 'status',
             '#paymentStatus': 'paymentStatus',
-            '#paymentAttemptId': 'paymentAttemptId',
             '#paymentRequestedAt': 'paymentRequestedAt',
+            '#paymentTransactionId': 'paymentTransactionId',
+            '#paidAt': 'paidAt',
             '#paymentFailureReason': 'paymentFailureReason',
             '#updatedAt': 'updatedAt',
           },
@@ -216,10 +216,12 @@ export class OrdersService {
             ':reserved': OrderStatus.RESERVED,
             ':notStarted': PaymentStatus.NOT_STARTED,
             ':failed': PaymentStatus.FAILED,
-            ':paymentStatus': PaymentStatus.PROCESSING,
-            ':paymentAttemptId': paymentAttemptId,
-            ':paymentRequestedAt': paymentRequestedAt,
-            ':updatedAt': paymentRequestedAt,
+            ':status': OrderStatus.CONFIRMED,
+            ':paymentStatus': PaymentStatus.PAID,
+            ':paymentRequestedAt': paidAt,
+            ':paymentTransactionId': paymentTransactionId,
+            ':paidAt': paidAt,
+            ':updatedAt': paidAt,
           },
         }),
       )
@@ -230,20 +232,14 @@ export class OrdersService {
       throw error
     }
 
-    const message: ProcessPaymentMessage = {
-      orderId,
-      customerId: order.customerId,
-      paymentAttemptId,
-      requestedAt: paymentRequestedAt,
-    }
-    await this.ordersQueueService.enqueueProcessPayment(message)
-
     return {
       ...(await this.getById(orderId)),
-      paymentStatus: PaymentStatus.PROCESSING,
-      paymentAttemptId,
-      paymentRequestedAt,
-      updatedAt: paymentRequestedAt,
+      status: OrderStatus.CONFIRMED,
+      paymentStatus: PaymentStatus.PAID,
+      paymentRequestedAt: paidAt,
+      paymentTransactionId,
+      paidAt,
+      updatedAt: paidAt,
     }
   }
 

@@ -4,8 +4,6 @@ import { Construct } from 'constructs'
 import {
   placeOrderDlqName,
   placeOrderQueueName,
-  processPaymentDlqName,
-  processPaymentQueueName,
   releaseReservationDlqName,
   releaseReservationQueueName,
 } from '../../config/constants'
@@ -17,8 +15,6 @@ export interface SqsConstructProps {
 export class SqsConstruct extends Construct {
   readonly placeOrderDlq: sqs.Queue
   readonly placeOrderQueue: sqs.Queue
-  readonly processPaymentDlq: sqs.Queue
-  readonly processPaymentQueue: sqs.Queue
   readonly releaseReservationDlq: sqs.Queue
   readonly releaseReservationQueue: sqs.Queue
 
@@ -43,26 +39,6 @@ export class SqsConstruct extends Construct {
       visibilityTimeout,
       deadLetterQueue: {
         queue: this.placeOrderDlq,
-        maxReceiveCount: 3,
-      },
-    })
-
-    this.processPaymentDlq = new sqs.Queue(this, 'ProcessPaymentDlq', {
-      queueName: processPaymentDlqName,
-      fifo: true,
-      contentBasedDeduplication: false,
-      retentionPeriod: cdk.Duration.days(14),
-      visibilityTimeout,
-    })
-
-    this.processPaymentQueue = new sqs.Queue(this, 'ProcessPaymentQueue', {
-      queueName: processPaymentQueueName,
-      fifo: true,
-      contentBasedDeduplication: false,
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-      visibilityTimeout,
-      deadLetterQueue: {
-        queue: this.processPaymentDlq,
         maxReceiveCount: 3,
       },
     })

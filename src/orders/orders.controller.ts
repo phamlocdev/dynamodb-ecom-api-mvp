@@ -78,10 +78,10 @@ export class OrdersController {
   }
 
   @Post(':orderId/pay')
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperation({ summary: 'Trigger async mock payment processing for a reserved order' })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mark a reserved order as paid' })
   @ApiParam({ name: 'orderId', format: 'uuid' })
-  @ApiAcceptedResponse({ type: TriggerPaymentResponseDto })
+  @ApiOkResponse({ type: TriggerPaymentResponseDto })
   async pay(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId') orderId: string,
