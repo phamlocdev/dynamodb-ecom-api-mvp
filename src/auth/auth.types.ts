@@ -10,6 +10,7 @@ export interface AuthenticatedUser {
   sub: string
   username: string
   email?: string
+  name?: string
   groups: Role[]
   tokenUse: 'access'
   scope?: string

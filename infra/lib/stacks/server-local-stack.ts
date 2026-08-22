@@ -4,6 +4,7 @@ import { CognitoConstruct } from '../constructs/auth/cognito.construct'
 import { HttpApiConstruct } from '../constructs/api/http-api.construct'
 import { LambdaApiConstruct } from '../constructs/api/lambda-api.construct'
 import { DynamoDbConstruct } from '../constructs/data/dynamodb.construct'
+import { OrdersWorkersConstruct } from '../constructs/messaging/orders-workers.construct'
 import { SqsConstruct } from '../constructs/messaging/sqs.construct'
 import { SesConstruct } from '../constructs/notification/ses.construct'
 import { S3Construct } from '../constructs/storage/s3.construct'
@@ -16,6 +17,9 @@ export class ServerLocalStack extends cdk.Stack {
     const env = getLocalStackInfraEnv()
 
     const data = new DynamoDbConstruct(this, 'Data')
+    const messaging = new SqsConstruct(this, 'Messaging', {
+      visibilityTimeout: cdk.Duration.seconds(90),
+    })
 
     const auth = new CognitoConstruct(this, 'Auth', {
       callbackUrls: env.callbackUrls,
@@ -28,6 +32,26 @@ export class ServerLocalStack extends cdk.Stack {
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
       productsTable: data.productsTable,
       categoriesTable: data.categoriesTable,
+      cartsTable: data.cartsTable,
+      cartItemsTable: data.cartItemsTable,
+      ordersTable: data.ordersTable,
+      orderItemsTable: data.orderItemsTable,
+      inventoryTable: data.inventoryTable,
+      placeOrderQueue: messaging.placeOrderQueue,
+      releaseReservationQueue: messaging.releaseReservationQueue,
+      userPoolId: auth.userPool.userPoolId,
+      userPoolClientId: auth.userPoolClient.userPoolClientId,
+    })
+
+    new OrdersWorkersConstruct(this, 'OrdersWorkers', {
+      productsTable: data.productsTable,
+      cartsTable: data.cartsTable,
+      cartItemsTable: data.cartItemsTable,
+      ordersTable: data.ordersTable,
+      orderItemsTable: data.orderItemsTable,
+      inventoryTable: data.inventoryTable,
+      placeOrderQueue: messaging.placeOrderQueue,
+      releaseReservationQueue: messaging.releaseReservationQueue,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -40,7 +64,6 @@ export class ServerLocalStack extends cdk.Stack {
     })
 
     new S3Construct(this, 'Storage')
-    new SqsConstruct(this, 'Messaging')
     new SesConstruct(this, 'Notification')
 
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {
@@ -69,6 +92,14 @@ export class ServerLocalStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'HostedUiDomain', {
       value: auth.userPoolDomain.baseUrl(),
+    })
+
+    new cdk.CfnOutput(this, 'PlaceOrderQueueUrl', {
+      value: messaging.placeOrderQueue.queueUrl,
+    })
+
+    new cdk.CfnOutput(this, 'ReleaseReservationQueueUrl', {
+      value: messaging.releaseReservationQueue.queueUrl,
     })
   }
 }

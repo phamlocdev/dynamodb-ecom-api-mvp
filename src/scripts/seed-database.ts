@@ -2,6 +2,7 @@ import 'dotenv/config'
 import { BatchWriteCommand, BatchWriteCommandInput, ScanCommand } from '@aws-sdk/lib-dynamodb'
 import { createDynamoDbDocumentClient } from '../dynamodb/dynamodb.config'
 import { Category } from '../categories/category.types'
+import { InventoryRecord } from '../inventory/inventory.types'
 import { ProductStatus } from '../products/product-status.enum'
 import { Product } from '../products/product.types'
 
@@ -18,8 +19,10 @@ interface TableSeed<TItem extends SeedItem> {
 
 const categoriesTableName = process.env.CATEGORIES_TABLE ?? 'categories'
 const productsTableName = process.env.PRODUCTS_TABLE ?? 'products'
+const inventoryTableName = process.env.INVENTORY_TABLE ?? 'inventory'
 
 const categorySeeds = createSeedCategories()
+const productSeeds = createSeedProducts(categorySeeds)
 
 const tableSeeds: TableSeed<SeedItem>[] = [
   {
@@ -30,7 +33,12 @@ const tableSeeds: TableSeed<SeedItem>[] = [
   {
     tableName: productsTableName,
     keyName: 'productId',
-    createItems: () => createSeedProducts(categorySeeds),
+    createItems: () => productSeeds,
+  },
+  {
+    tableName: inventoryTableName,
+    keyName: 'productId',
+    createItems: () => createSeedInventory(productSeeds),
   },
 ]
 
@@ -135,6 +143,15 @@ function createSeedProducts(categories: Category[]): Product[] {
       updatedAt: seedTimestamp,
     }
   })
+}
+
+function createSeedInventory(products: Product[]): InventoryRecord[] {
+  return products.map((product, index) => ({
+    productId: product.productId,
+    availableQuantity: 20 + (index % 15),
+    reservedQuantity: 0,
+    updatedAt: seedTimestamp,
+  }))
 }
 
 async function getExistingKeys(
