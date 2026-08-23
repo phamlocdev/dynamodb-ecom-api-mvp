@@ -10,11 +10,9 @@ import { ProductsService } from '../products/products.service'
 import { OrderStatus } from '../orders/order-status.enum'
 import { OrdersQueueService } from '../orders/orders.queue'
 import { OrdersService } from '../orders/orders.service'
-import {
-  OrderItem,
-  PlaceOrderMessage,
-  ReleaseReservationMessage,
-} from '../orders/orders.types'
+import { PAYMENT_WINDOW_EXPIRED_REASON } from '../orders/payment-reservation.config'
+import { PaymentStatus } from '../orders/payment-status.enum'
+import { OrderItem, PlaceOrderMessage, ReleaseReservationMessage } from '../orders/orders.types'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { ConfigService } from '@nestjs/config'
 
@@ -81,6 +79,36 @@ export class OrdersWorkerService {
     return {
       batchItemFailures: failures,
     }
+  }
+
+  async handleReservationExpirySweep(): Promise<void> {
+    const nowEpochSeconds = toEpochSeconds(Date.now())
+    let exclusiveStartKey: Record<string, unknown> | undefined
+
+    do {
+      const response = await this.ordersService.findExpiredReservedOrders(
+        nowEpochSeconds,
+        25,
+        exclusiveStartKey,
+      )
+
+      for (const order of response.items) {
+        const items = await this.ordersService.findOrderItems(order.orderId)
+        if (items.length === 0) {
+          continue
+        }
+
+        await this.ordersQueueService.enqueueReleaseReservation({
+          orderId: order.orderId,
+          customerId: order.customerId,
+          items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+          targetStatus: OrderStatus.EXPIRED,
+          reason: PAYMENT_WINDOW_EXPIRED_REASON,
+        })
+      }
+
+      exclusiveStartKey = response.lastEvaluatedKey
+    } while (exclusiveStartKey)
   }
 
   private async handlePlaceOrderRecord(record: SQSRecord): Promise<void> {
@@ -171,8 +199,19 @@ export class OrdersWorkerService {
 
   private async handleReleaseReservationRecord(record: SQSRecord): Promise<void> {
     const message = parseJson<ReleaseReservationMessage>(record.body)
+    const order = await this.ordersService.getById(message.orderId)
+
+    if (
+      order.status !== OrderStatus.RESERVED ||
+      order.paymentStatus === PaymentStatus.PAID ||
+      !order.paymentExpiresAt ||
+      order.paymentExpiresAt > toEpochSeconds(Date.now())
+    ) {
+      return
+    }
+
     await this.inventoryService.release(message.items)
-    await this.ordersService.updateStatus(message.orderId, message.targetStatus, message.reason)
+    await this.ordersService.expireReservationIfUnpaid(message.orderId, order.paymentExpiresAt)
   }
 }
 
@@ -182,4 +221,8 @@ function parseJson<T>(payload: string): T {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function toEpochSeconds(timestampMs: number): number {
+  return Math.floor(timestampMs / 1000)
 }

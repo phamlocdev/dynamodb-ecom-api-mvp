@@ -19,6 +19,7 @@ export interface Order {
   createdAt: string
   updatedAt: string
   reservedAt?: string
+  paymentExpiresAt?: number
   failureReason?: string
   totalAmount?: number
 }

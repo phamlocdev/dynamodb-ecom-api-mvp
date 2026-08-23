@@ -126,7 +126,8 @@ function isCursorPayload(value: unknown): value is CursorPayload {
   return (
     (value.resource === 'products' ||
       value.resource === 'categories' ||
-      value.resource === 'orders') &&
+      value.resource === 'orders' ||
+      value.resource === 'inventories') &&
     isPageSize(value.limit) &&
     isCursorKey(value.startKey) &&
     Array.isArray(value.history) &&

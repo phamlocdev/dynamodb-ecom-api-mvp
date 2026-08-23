@@ -1,12 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
-import {
-  placeOrderDlqName,
-  placeOrderQueueName,
-  releaseReservationDlqName,
-  releaseReservationQueueName,
-} from '../../config/constants'
+import { getLocalStackInfraEnv } from '../../config/env'
 
 export interface SqsConstructProps {
   visibilityTimeout?: cdk.Duration
@@ -21,10 +16,11 @@ export class SqsConstruct extends Construct {
   constructor(scope: Construct, id: string, props: SqsConstructProps = {}) {
     super(scope, id)
 
+    const infraEnv = getLocalStackInfraEnv()
     const visibilityTimeout = props.visibilityTimeout ?? cdk.Duration.seconds(60)
 
     this.placeOrderDlq = new sqs.Queue(this, 'PlaceOrderDlq', {
-      queueName: placeOrderDlqName,
+      queueName: infraEnv.placeOrderDlqName,
       fifo: true,
       contentBasedDeduplication: false,
       retentionPeriod: cdk.Duration.days(14),
@@ -32,7 +28,7 @@ export class SqsConstruct extends Construct {
     })
 
     this.placeOrderQueue = new sqs.Queue(this, 'PlaceOrderQueue', {
-      queueName: placeOrderQueueName,
+      queueName: infraEnv.placeOrderQueueName,
       fifo: true,
       contentBasedDeduplication: false,
       receiveMessageWaitTime: cdk.Duration.seconds(20),
@@ -44,7 +40,7 @@ export class SqsConstruct extends Construct {
     })
 
     this.releaseReservationDlq = new sqs.Queue(this, 'ReleaseReservationDlq', {
-      queueName: releaseReservationDlqName,
+      queueName: infraEnv.releaseReservationDlqName,
       fifo: true,
       contentBasedDeduplication: false,
       retentionPeriod: cdk.Duration.days(14),
@@ -52,7 +48,7 @@ export class SqsConstruct extends Construct {
     })
 
     this.releaseReservationQueue = new sqs.Queue(this, 'ReleaseReservationQueue', {
-      queueName: releaseReservationQueueName,
+      queueName: infraEnv.releaseReservationQueueName,
       fifo: true,
       contentBasedDeduplication: false,
       receiveMessageWaitTime: cdk.Duration.seconds(20),

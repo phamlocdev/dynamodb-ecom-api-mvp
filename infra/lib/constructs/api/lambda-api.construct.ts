@@ -5,17 +5,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
-import {
-  cartItemsTableName,
-  cartsTableName,
-  categoriesTableName,
-  inventoryTableName,
-  orderItemsTableName,
-  ordersTableName,
-  placeOrderQueueName,
-  productsTableName,
-  releaseReservationQueueName,
-} from '../../config/constants'
+import { getLocalStackInfraEnv } from '../../config/env'
 import { createNodejsBundling, removeGeneratedSourceArtifacts } from '../../shared/lambda-bundling'
 
 export interface LambdaApiConstructProps {
@@ -37,6 +27,7 @@ export class LambdaApiConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: LambdaApiConstructProps) {
     super(scope, id)
+    const infraEnv = getLocalStackInfraEnv()
 
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -48,21 +39,22 @@ export class LambdaApiConstruct extends Construct {
         afterBundling: () => removeGeneratedSourceArtifacts(),
       }),
       environment: {
-        PRODUCTS_TABLE: productsTableName,
-        CATEGORIES_TABLE: categoriesTableName,
-        CARTS_TABLE: cartsTableName,
-        CART_ITEMS_TABLE: cartItemsTableName,
-        ORDERS_TABLE: ordersTableName,
-        ORDER_ITEMS_TABLE: orderItemsTableName,
-        INVENTORY_TABLE: inventoryTableName,
-        DYNAMODB_ENDPOINT: 'http://host.docker.internal:4566',
-        COGNITO_IDP_ENDPOINT: 'http://host.docker.internal:4566',
+        PRODUCTS_TABLE: infraEnv.productsTableName,
+        CATEGORIES_TABLE: infraEnv.categoriesTableName,
+        CARTS_TABLE: infraEnv.cartsTableName,
+        CART_ITEMS_TABLE: infraEnv.cartItemsTableName,
+        ORDERS_TABLE: infraEnv.ordersTableName,
+        ORDER_ITEMS_TABLE: infraEnv.orderItemsTableName,
+        INVENTORY_TABLE: infraEnv.inventoryTableName,
+        DYNAMODB_ENDPOINT: infraEnv.dynamoDbLambdaEndpoint,
+        COGNITO_IDP_ENDPOINT: infraEnv.cognitoIdpLambdaEndpoint,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
-        PLACE_ORDER_QUEUE_NAME: placeOrderQueueName,
+        PLACE_ORDER_QUEUE_NAME: infraEnv.placeOrderQueueName,
         RELEASE_RESERVATION_QUEUE_URL: props.releaseReservationQueue.queueUrl,
-        RELEASE_RESERVATION_QUEUE_NAME: releaseReservationQueueName,
+        RELEASE_RESERVATION_QUEUE_NAME: infraEnv.releaseReservationQueueName,
+        PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: infraEnv.paymentConfirmationTimeoutSeconds,
       },
     })
 

@@ -109,4 +109,16 @@ export function registerApiRoutes(
     integration,
     ...localRouteAuthOptions(authorizer),
   })
+  api.addRoutes({
+    path: '/inventories',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/inventories/{productId}',
+    methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.PATCH],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
 }
