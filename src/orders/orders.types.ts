@@ -47,14 +47,3 @@ export interface PlaceOrderMessage {
   deduplicationKey: string
   requestedAt: string
 }
-
-export interface ReleaseReservationMessage {
-  orderId: string
-  customerId: string
-  items: Array<{
-    productId: string
-    quantity: number
-  }>
-  targetStatus: OrderStatus
-  reason?: string
-}

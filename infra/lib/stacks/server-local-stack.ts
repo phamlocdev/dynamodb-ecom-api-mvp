@@ -38,7 +38,6 @@ export class ServerLocalStack extends cdk.Stack {
       orderItemsTable: data.orderItemsTable,
       inventoryTable: data.inventoryTable,
       placeOrderQueue: messaging.placeOrderQueue,
-      releaseReservationQueue: messaging.releaseReservationQueue,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -51,7 +50,6 @@ export class ServerLocalStack extends cdk.Stack {
       orderItemsTable: data.orderItemsTable,
       inventoryTable: data.inventoryTable,
       placeOrderQueue: messaging.placeOrderQueue,
-      releaseReservationQueue: messaging.releaseReservationQueue,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -96,10 +94,6 @@ export class ServerLocalStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'PlaceOrderQueueUrl', {
       value: messaging.placeOrderQueue.queueUrl,
-    })
-
-    new cdk.CfnOutput(this, 'ReleaseReservationQueueUrl', {
-      value: messaging.releaseReservationQueue.queueUrl,
     })
   }
 }

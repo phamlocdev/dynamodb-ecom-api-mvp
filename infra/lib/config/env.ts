@@ -25,8 +25,6 @@ export interface LocalStackInfraEnv {
   inventoryTableName: string
   placeOrderQueueName: string
   placeOrderDlqName: string
-  releaseReservationQueueName: string
-  releaseReservationDlqName: string
   ordersEntityType: string
   localStackCognitoBaseUrl: string
   enableLocalStackCognitoTriggers: boolean
@@ -64,14 +62,6 @@ export function getLocalStackInfraEnv(): LocalStackInfraEnv {
     inventoryTableName: readEnv('INVENTORY_TABLE', 'inventory'),
     placeOrderQueueName: readEnv('PLACE_ORDER_QUEUE_NAME', 'place-order.fifo'),
     placeOrderDlqName: readEnv('PLACE_ORDER_DLQ_NAME', 'place-order-dlq.fifo'),
-    releaseReservationQueueName: readEnv(
-      'RELEASE_RESERVATION_QUEUE_NAME',
-      'release-reservation.fifo',
-    ),
-    releaseReservationDlqName: readEnv(
-      'RELEASE_RESERVATION_DLQ_NAME',
-      'release-reservation-dlq.fifo',
-    ),
     ordersEntityType: readEnv('ORDERS_ENTITY_TYPE', 'ORDER'),
     localStackCognitoBaseUrl: readEnv(
       'LOCALSTACK_COGNITO_BASE_URL',
@@ -87,7 +77,7 @@ export function getLocalStackInfraEnv(): LocalStackInfraEnv {
       'COGNITO_IDP_LAMBDA_ENDPOINT',
       'http://host.docker.internal:4566',
     ),
-    paymentConfirmationTimeoutSeconds: readEnv('PAYMENT_CONFIRMATION_SECONDS_TIMEOUT', '900'),
+    paymentConfirmationTimeoutSeconds: readEnv('PAYMENT_CONFIRMATION_SECONDS_TIMEOUT', '60'),
     reservationExpiryPollerScheduleMinutes: readPositiveIntegerEnv(
       'RESERVATION_EXPIRY_POLLER_SCHEDULE_MINUTES',
       1,

@@ -10,8 +10,6 @@ export interface SqsConstructProps {
 export class SqsConstruct extends Construct {
   readonly placeOrderDlq: sqs.Queue
   readonly placeOrderQueue: sqs.Queue
-  readonly releaseReservationDlq: sqs.Queue
-  readonly releaseReservationQueue: sqs.Queue
 
   constructor(scope: Construct, id: string, props: SqsConstructProps = {}) {
     super(scope, id)
@@ -35,26 +33,6 @@ export class SqsConstruct extends Construct {
       visibilityTimeout,
       deadLetterQueue: {
         queue: this.placeOrderDlq,
-        maxReceiveCount: 3,
-      },
-    })
-
-    this.releaseReservationDlq = new sqs.Queue(this, 'ReleaseReservationDlq', {
-      queueName: infraEnv.releaseReservationDlqName,
-      fifo: true,
-      contentBasedDeduplication: false,
-      retentionPeriod: cdk.Duration.days(14),
-      visibilityTimeout,
-    })
-
-    this.releaseReservationQueue = new sqs.Queue(this, 'ReleaseReservationQueue', {
-      queueName: infraEnv.releaseReservationQueueName,
-      fifo: true,
-      contentBasedDeduplication: false,
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-      visibilityTimeout,
-      deadLetterQueue: {
-        queue: this.releaseReservationDlq,
         maxReceiveCount: 3,
       },
     })

@@ -7,13 +7,20 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb'
 import { randomUUID } from 'crypto'
 import { AuthenticatedUser } from '../auth/auth.types'
 import { Role } from '../auth/roles.enum'
 import { CartsService } from '../carts/carts.service'
 import { CartStatus } from '../carts/cart-status.enum'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
+import { ReservedInventoryItem } from '../inventory/inventory.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
 import { UsersService } from '../users/users.service'
@@ -34,6 +41,7 @@ const ORDERS_ENTITY_TYPE = 'ORDER'
 export class OrdersService {
   private readonly ordersTableName: string
   private readonly orderItemsTableName: string
+  private readonly inventoryTableName: string
   private readonly paymentConfirmationTimeoutSeconds: number
 
   constructor(
@@ -50,6 +58,7 @@ export class OrdersService {
   ) {
     this.ordersTableName = configService.get<string>('ORDERS_TABLE') ?? 'orders'
     this.orderItemsTableName = configService.get<string>('ORDER_ITEMS_TABLE') ?? 'order-items'
+    this.inventoryTableName = configService.get<string>('INVENTORY_TABLE') ?? 'inventory'
     this.paymentConfirmationTimeoutSeconds = resolvePaymentConfirmationTimeoutSeconds(
       configService.get<string>('PAYMENT_CONFIRMATION_SECONDS_TIMEOUT'),
     )
@@ -194,7 +203,7 @@ export class OrdersService {
       throw new BadRequestException(`Order ${orderId} is already processing payment.`)
     }
     if (this.isPaymentExpired(order)) {
-      await this.enqueueReleaseForExpiredOrder(order)
+      await this.releaseExpiredOrderReservation(order)
       throw new ConflictException(PAYMENT_WINDOW_EXPIRED_REASON)
     }
 
@@ -239,7 +248,7 @@ export class OrdersService {
       if (isConditionalCheckFailure(error)) {
         const latestOrder = await this.getById(orderId)
         if (this.isPaymentExpired(latestOrder)) {
-          await this.enqueueReleaseForExpiredOrder(latestOrder)
+          await this.releaseExpiredOrderReservation(latestOrder)
           throw new ConflictException(PAYMENT_WINDOW_EXPIRED_REASON)
         }
         throw new ConflictException(`Order ${orderId} cannot start payment in its current state.`)
@@ -450,36 +459,102 @@ export class OrdersService {
     return this.paymentConfirmationTimeoutSeconds
   }
 
-  async expireReservationIfUnpaid(orderId: string, paymentExpiresAt: number): Promise<boolean> {
+  async failPendingOrderAndReleaseReservation(
+    orderId: string,
+    failureReason: string,
+    items: ReservedInventoryItem[],
+  ): Promise<void> {
+    const inventoryItems = aggregateReservedItems(items)
+    assertTransactionSize(inventoryItems)
+    const timestamp = new Date().toISOString()
+
+    await this.dynamoDbService.documentClient.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: this.ordersTableName,
+              Key: { orderId },
+              UpdateExpression:
+                'SET #status = :status, #failureReason = :failureReason, #updatedAt = :updatedAt',
+              ConditionExpression: '#status = :pending AND #paymentStatus = :notStarted',
+              ExpressionAttributeNames: {
+                '#status': 'status',
+                '#paymentStatus': 'paymentStatus',
+                '#failureReason': 'failureReason',
+                '#updatedAt': 'updatedAt',
+              },
+              ExpressionAttributeValues: {
+                ':pending': OrderStatus.PENDING,
+                ':notStarted': PaymentStatus.NOT_STARTED,
+                ':status': OrderStatus.FAILED,
+                ':failureReason': failureReason,
+                ':updatedAt': timestamp,
+              },
+            },
+          },
+          ...buildReleaseInventoryTransactItems(this.inventoryTableName, inventoryItems, timestamp),
+        ],
+      }),
+    )
+  }
+
+  async expireReservationAndReleaseInventoryIfUnpaid(
+    order: Order,
+    items: ReservedInventoryItem[],
+  ): Promise<boolean> {
+    if (!order.paymentExpiresAt) {
+      return false
+    }
+
+    const inventoryItems = aggregateReservedItems(items)
+    if (inventoryItems.length === 0) {
+      return false
+    }
+
+    assertTransactionSize(inventoryItems)
+    const timestamp = new Date().toISOString()
+
     try {
       await this.dynamoDbService.documentClient.send(
-        new UpdateCommand({
-          TableName: this.ordersTableName,
-          Key: { orderId },
-          UpdateExpression:
-            'SET #status = :status, #failureReason = :failureReason, #updatedAt = :updatedAt',
-          ConditionExpression:
-            '#status = :reserved AND #paymentStatus <> :paid AND #paymentExpiresAt = :paymentExpiresAt',
-          ExpressionAttributeNames: {
-            '#status': 'status',
-            '#paymentStatus': 'paymentStatus',
-            '#paymentExpiresAt': 'paymentExpiresAt',
-            '#failureReason': 'failureReason',
-            '#updatedAt': 'updatedAt',
-          },
-          ExpressionAttributeValues: {
-            ':reserved': OrderStatus.RESERVED,
-            ':paid': PaymentStatus.PAID,
-            ':paymentExpiresAt': paymentExpiresAt,
-            ':status': OrderStatus.EXPIRED,
-            ':failureReason': PAYMENT_WINDOW_EXPIRED_REASON,
-            ':updatedAt': new Date().toISOString(),
-          },
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.ordersTableName,
+                Key: { orderId: order.orderId },
+                UpdateExpression:
+                  'SET #status = :status, #failureReason = :failureReason, #updatedAt = :updatedAt',
+                ConditionExpression:
+                  '#status = :reserved AND #paymentStatus <> :paid AND #paymentExpiresAt = :paymentExpiresAt',
+                ExpressionAttributeNames: {
+                  '#status': 'status',
+                  '#paymentStatus': 'paymentStatus',
+                  '#paymentExpiresAt': 'paymentExpiresAt',
+                  '#failureReason': 'failureReason',
+                  '#updatedAt': 'updatedAt',
+                },
+                ExpressionAttributeValues: {
+                  ':reserved': OrderStatus.RESERVED,
+                  ':paid': PaymentStatus.PAID,
+                  ':paymentExpiresAt': order.paymentExpiresAt,
+                  ':status': OrderStatus.EXPIRED,
+                  ':failureReason': PAYMENT_WINDOW_EXPIRED_REASON,
+                  ':updatedAt': timestamp,
+                },
+              },
+            },
+            ...buildReleaseInventoryTransactItems(
+              this.inventoryTableName,
+              inventoryItems,
+              timestamp,
+            ),
+          ],
         }),
       )
       return true
     } catch (error) {
-      if (isConditionalCheckFailure(error)) {
+      if (isConditionalCheckFailure(error) || isTransactionCanceled(error)) {
         return false
       }
       throw error
@@ -490,7 +565,7 @@ export class OrdersService {
     return Boolean(order.paymentExpiresAt && order.paymentExpiresAt <= toEpochSeconds(Date.now()))
   }
 
-  private async enqueueReleaseForExpiredOrder(order: Order): Promise<void> {
+  private async releaseExpiredOrderReservation(order: Order): Promise<void> {
     if (order.status !== OrderStatus.RESERVED || !this.isPaymentExpired(order)) {
       return
     }
@@ -500,13 +575,10 @@ export class OrdersService {
       return
     }
 
-    await this.ordersQueueService.enqueueReleaseReservation({
-      orderId: order.orderId,
-      customerId: order.customerId,
-      items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-      targetStatus: OrderStatus.EXPIRED,
-      reason: PAYMENT_WINDOW_EXPIRED_REASON,
-    })
+    await this.expireReservationAndReleaseInventoryIfUnpaid(
+      order,
+      items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    )
   }
 }
 
@@ -521,6 +593,64 @@ function isConditionalCheckFailure(error: unknown): boolean {
     'name' in error &&
     error.name === 'ConditionalCheckFailedException'
   )
+}
+
+function isTransactionCanceled(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    error.name === 'TransactionCanceledException'
+  )
+}
+
+function aggregateReservedItems(items: ReservedInventoryItem[]): ReservedInventoryItem[] {
+  const quantityByProductId = new Map<string, number>()
+
+  for (const item of items) {
+    quantityByProductId.set(
+      item.productId,
+      (quantityByProductId.get(item.productId) ?? 0) + item.quantity,
+    )
+  }
+
+  return [...quantityByProductId.entries()].map(([productId, quantity]) => ({
+    productId,
+    quantity,
+  }))
+}
+
+function assertTransactionSize(items: ReservedInventoryItem[]): void {
+  if (items.length > 99) {
+    throw new BadRequestException(
+      'Cannot release reservations for orders with more than 99 unique products.',
+    )
+  }
+}
+
+function buildReleaseInventoryTransactItems(
+  inventoryTableName: string,
+  items: ReservedInventoryItem[],
+  timestamp: string,
+) {
+  return items.map((item) => ({
+    Update: {
+      TableName: inventoryTableName,
+      Key: { productId: item.productId },
+      UpdateExpression:
+        'SET #availableQuantity = #availableQuantity + :quantity, #reservedQuantity = #reservedQuantity - :quantity, #updatedAt = :updatedAt',
+      ConditionExpression: '#reservedQuantity >= :quantity',
+      ExpressionAttributeNames: {
+        '#availableQuantity': 'availableQuantity',
+        '#reservedQuantity': 'reservedQuantity',
+        '#updatedAt': 'updatedAt',
+      },
+      ExpressionAttributeValues: {
+        ':quantity': item.quantity,
+        ':updatedAt': timestamp,
+      },
+    },
+  }))
 }
 
 function buildStaffOrderQuery(

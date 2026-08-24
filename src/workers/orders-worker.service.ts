@@ -7,12 +7,10 @@ import { CartStatus } from '../carts/cart-status.enum'
 import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
 import { ProductsService } from '../products/products.service'
+import { Product } from '../products/product.types'
 import { OrderStatus } from '../orders/order-status.enum'
-import { OrdersQueueService } from '../orders/orders.queue'
 import { OrdersService } from '../orders/orders.service'
-import { PAYMENT_WINDOW_EXPIRED_REASON } from '../orders/payment-reservation.config'
-import { PaymentStatus } from '../orders/payment-status.enum'
-import { OrderItem, PlaceOrderMessage, ReleaseReservationMessage } from '../orders/orders.types'
+import { OrderItem, PlaceOrderMessage } from '../orders/orders.types'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { ConfigService } from '@nestjs/config'
 
@@ -31,8 +29,6 @@ export class OrdersWorkerService {
     private readonly productsService: ProductsService,
     @Inject(OrdersService)
     private readonly ordersService: OrdersService,
-    @Inject(OrdersQueueService)
-    private readonly ordersQueueService: OrdersQueueService,
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
     @Inject(ConfigService)
@@ -64,28 +60,11 @@ export class OrdersWorkerService {
     }
   }
 
-  async handleReleaseReservationBatch(event: SQSEvent): Promise<SQSBatchResponse> {
-    const failures = []
-
-    for (const record of event.Records) {
-      try {
-        await this.handleReleaseReservationRecord(record)
-      } catch (error) {
-        this.logger.error(`Failed release-reservation record ${record.messageId}`, error)
-        failures.push({ itemIdentifier: record.messageId })
-      }
-    }
-
-    return {
-      batchItemFailures: failures,
-    }
-  }
-
   async handleReservationExpirySweep(): Promise<void> {
     const nowEpochSeconds = toEpochSeconds(Date.now())
     let exclusiveStartKey: Record<string, unknown> | undefined
     let expiredOrdersFound = 0
-    let releaseMessagesEnqueued = 0
+    let reservationsReleased = 0
 
     do {
       const response = await this.ordersService.findExpiredReservedOrders(
@@ -103,21 +82,24 @@ export class OrdersWorkerService {
           continue
         }
 
-        await this.ordersQueueService.enqueueReleaseReservation({
-          orderId: order.orderId,
-          customerId: order.customerId,
-          items: items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-          targetStatus: OrderStatus.EXPIRED,
-          reason: PAYMENT_WINDOW_EXPIRED_REASON,
-        })
-        releaseMessagesEnqueued += 1
+        const released = await this.ordersService.expireReservationAndReleaseInventoryIfUnpaid(
+          order,
+          items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+        )
+        if (released) {
+          reservationsReleased += 1
+        } else {
+          this.logger.warn(
+            `Skipped releasing expired reservation for order ${order.orderId}; order or inventory conditions changed.`,
+          )
+        }
       }
 
       exclusiveStartKey = response.lastEvaluatedKey
     } while (exclusiveStartKey)
 
     this.logger.log(
-      `Reservation expiry sweep completed. expiredOrdersFound=${expiredOrdersFound}, releaseMessagesEnqueued=${releaseMessagesEnqueued}`,
+      `Reservation expiry sweep completed. expiredOrdersFound=${expiredOrdersFound}, reservationsReleased=${reservationsReleased}`,
     )
   }
 
@@ -151,15 +133,14 @@ export class OrdersWorkerService {
     const reservedItems: ReservedInventoryItem[] = []
 
     try {
-      const productSnapshots = await Promise.all(
-        cartItems.map(async (item) => {
-          const product = await this.productsService.findOne(item.productId)
+      const productSnapshots: Array<{ item: (typeof cartItems)[number]; product: Product }> = []
+      for (const item of cartItems) {
+        const product = await this.productsService.findOne(item.productId)
 
-          await this.inventoryService.reserve(item.productId, item.quantity)
-          reservedItems.push({ productId: item.productId, quantity: item.quantity })
-          return { item, product }
-        }),
-      )
+        await this.inventoryService.reserve(item.productId, item.quantity)
+        reservedItems.push({ productId: item.productId, quantity: item.quantity })
+        productSnapshots.push({ item, product })
+      }
 
       const createdAt = new Date().toISOString()
       const orderItems: OrderItem[] = productSnapshots.map(({ item, product }, index) => ({
@@ -188,16 +169,14 @@ export class OrdersWorkerService {
     } catch (error) {
       const failureReason = error instanceof Error ? error.message : 'Failed to process order.'
 
-      await this.ordersService.markFailed(order.orderId, OrderStatus.FAILED, failureReason)
-
       if (reservedItems.length > 0) {
-        await this.ordersQueueService.enqueueReleaseReservation({
-          orderId: order.orderId,
-          customerId: order.customerId,
-          items: reservedItems,
-          targetStatus: OrderStatus.FAILED,
-          reason: failureReason,
-        })
+        await this.ordersService.failPendingOrderAndReleaseReservation(
+          order.orderId,
+          failureReason,
+          reservedItems,
+        )
+      } else {
+        await this.ordersService.markFailed(order.orderId, OrderStatus.FAILED, failureReason)
       }
 
       // Only rethrow the error if it's not a ConflictException, which indicates insufficient inventory.
@@ -205,23 +184,6 @@ export class OrdersWorkerService {
         throw error
       }
     }
-  }
-
-  private async handleReleaseReservationRecord(record: SQSRecord): Promise<void> {
-    const message = parseJson<ReleaseReservationMessage>(record.body)
-    const order = await this.ordersService.getById(message.orderId)
-
-    if (
-      order.status !== OrderStatus.RESERVED ||
-      order.paymentStatus === PaymentStatus.PAID ||
-      !order.paymentExpiresAt ||
-      order.paymentExpiresAt > toEpochSeconds(Date.now())
-    ) {
-      return
-    }
-
-    await this.inventoryService.release(message.items)
-    await this.ordersService.expireReservationIfUnpaid(message.orderId, order.paymentExpiresAt)
   }
 }
 

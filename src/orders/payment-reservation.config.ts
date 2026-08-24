@@ -1,4 +1,4 @@
-export const DEFAULT_PAYMENT_CONFIRMATION_SECONDS_TIMEOUT = 900
+export const DEFAULT_PAYMENT_CONFIRMATION_SECONDS_TIMEOUT = 60
 export const PAYMENT_WINDOW_EXPIRED_REASON = 'Payment window expired.'
 
 export function resolvePaymentConfirmationTimeoutSeconds(rawValue?: string): number {

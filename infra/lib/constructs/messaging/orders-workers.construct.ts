@@ -3,6 +3,7 @@ import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
@@ -19,14 +20,12 @@ export interface OrdersWorkersConstructProps {
   orderItemsTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   placeOrderQueue: sqs.IQueue
-  releaseReservationQueue: sqs.IQueue
   userPoolId: string
   userPoolClientId: string
 }
 
 export class OrdersWorkersConstruct extends Construct {
   readonly placeOrderWorker: nodejs.NodejsFunction
-  readonly releaseReservationWorker: nodejs.NodejsFunction
   readonly reservationExpiryPoller: nodejs.NodejsFunction
 
   constructor(scope: Construct, id: string, props: OrdersWorkersConstructProps) {
@@ -44,8 +43,6 @@ export class OrdersWorkersConstruct extends Construct {
       COGNITO_IDP_ENDPOINT: infraEnv.cognitoIdpLambdaEndpoint,
       COGNITO_USER_POOL_ID: props.userPoolId,
       COGNITO_CLIENT_ID: props.userPoolClientId,
-      RELEASE_RESERVATION_QUEUE_URL: props.releaseReservationQueue.queueUrl,
-      RELEASE_RESERVATION_QUEUE_NAME: infraEnv.releaseReservationQueueName,
       PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: infraEnv.paymentConfirmationTimeoutSeconds,
       // PLACE_ORDER_DELAY_MS: '10000',
     }
@@ -53,18 +50,6 @@ export class OrdersWorkersConstruct extends Construct {
     this.placeOrderWorker = new nodejs.NodejsFunction(this, 'PlaceOrderWorker', {
       runtime: lambda.Runtime.NODEJS_24_X,
       entry: path.join(__dirname, '..', '..', '..', '..', 'src', 'order-worker.ts'),
-      handler: 'handler',
-      timeout: cdk.Duration.seconds(60),
-      memorySize: 512,
-      bundling: createNodejsBundling({
-        afterBundling: () => removeGeneratedSourceArtifacts(),
-      }),
-      environment: sharedEnvironment,
-    })
-
-    this.releaseReservationWorker = new nodejs.NodejsFunction(this, 'ReleaseReservationWorker', {
-      runtime: lambda.Runtime.NODEJS_24_X,
-      entry: path.join(__dirname, '..', '..', '..', '..', 'src', 'order-release-worker.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(60),
       memorySize: 512,
@@ -93,13 +78,6 @@ export class OrdersWorkersConstruct extends Construct {
       }),
     )
 
-    this.releaseReservationWorker.addEventSource(
-      new lambdaEventSources.SqsEventSource(props.releaseReservationQueue, {
-        batchSize: 1,
-        reportBatchItemFailures: true,
-      }),
-    )
-
     new events.Rule(this, 'ReservationExpiryPollerSchedule', {
       schedule: events.Schedule.rate(
         cdk.Duration.minutes(infraEnv.reservationExpiryPollerScheduleMinutes),
@@ -107,11 +85,7 @@ export class OrdersWorkersConstruct extends Construct {
       targets: [new eventTargets.LambdaFunction(this.reservationExpiryPoller)],
     })
 
-    const workerFunctions = [
-      this.placeOrderWorker,
-      this.releaseReservationWorker,
-      this.reservationExpiryPoller,
-    ]
+    const workerFunctions = [this.placeOrderWorker, this.reservationExpiryPoller]
     const tables = [
       props.productsTable,
       props.cartsTable,
@@ -125,9 +99,15 @@ export class OrdersWorkersConstruct extends Construct {
       workerFunctions.forEach((worker) => table.grantReadWriteData(worker))
     })
 
+    workerFunctions.forEach((worker) => {
+      worker.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['dynamodb:TransactWriteItems'],
+          resources: [props.ordersTable.tableArn, props.inventoryTable.tableArn],
+        }),
+      )
+    })
+
     props.placeOrderQueue.grantConsumeMessages(this.placeOrderWorker)
-    props.releaseReservationQueue.grantConsumeMessages(this.releaseReservationWorker)
-    props.releaseReservationQueue.grantSendMessages(this.placeOrderWorker)
-    props.releaseReservationQueue.grantSendMessages(this.reservationExpiryPoller)
   }
 }

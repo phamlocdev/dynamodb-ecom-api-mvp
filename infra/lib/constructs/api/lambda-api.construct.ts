@@ -1,6 +1,7 @@
 import * as path from 'path'
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
@@ -17,7 +18,6 @@ export interface LambdaApiConstructProps {
   orderItemsTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   placeOrderQueue: sqs.IQueue
-  releaseReservationQueue: sqs.IQueue
   userPoolId: string
   userPoolClientId: string
 }
@@ -52,8 +52,6 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         PLACE_ORDER_QUEUE_NAME: infraEnv.placeOrderQueueName,
-        RELEASE_RESERVATION_QUEUE_URL: props.releaseReservationQueue.queueUrl,
-        RELEASE_RESERVATION_QUEUE_NAME: infraEnv.releaseReservationQueueName,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: infraEnv.paymentConfirmationTimeoutSeconds,
       },
     })
@@ -66,6 +64,12 @@ export class LambdaApiConstruct extends Construct {
     props.orderItemsTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
-    props.releaseReservationQueue.grantSendMessages(this.apiHandler)
+
+    this.apiHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:TransactWriteItems'],
+        resources: [props.ordersTable.tableArn, props.inventoryTable.tableArn],
+      }),
+    )
   }
 }

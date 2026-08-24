@@ -36,7 +36,6 @@ async function main(): Promise<void> {
     COGNITO_USER_POOL_ID: requireOutput(outputs, 'CognitoUserPoolId'),
     COGNITO_CLIENT_ID: requireOutput(outputs, 'CognitoClientId'),
     PLACE_ORDER_QUEUE_URL: requireOutput(outputs, 'PlaceOrderQueueUrl'),
-    RELEASE_RESERVATION_QUEUE_URL: requireOutput(outputs, 'ReleaseReservationQueueUrl'),
   })
 
   updateEnvFile(clientEnvPath, {
@@ -111,14 +110,10 @@ async function fetchStackOutputsFromServices(): Promise<StackOutputs> {
   const cognitoClient = new CognitoIdentityProviderClient(createAwsClientConfig())
   const sqsClient = new SQSClient(createAwsClientConfig())
 
-  const [api, auth, placeOrderQueueUrl, releaseReservationQueueUrl] = await Promise.all([
+  const [api, auth, placeOrderQueueUrl] = await Promise.all([
     resolveHttpApi(apiGatewayClient),
     resolveCognito(cognitoClient),
     resolveQueueUrl(sqsClient, readEnv('PLACE_ORDER_QUEUE_NAME', 'place-order.fifo')),
-    resolveQueueUrl(
-      sqsClient,
-      readEnv('RELEASE_RESERVATION_QUEUE_NAME', 'release-reservation.fifo'),
-    ),
   ])
 
   return {
@@ -131,7 +126,6 @@ async function fetchStackOutputsFromServices(): Promise<StackOutputs> {
     LocalStackCognitoIssuer: `${readEnv('LOCALSTACK_COGNITO_BASE_URL', 'http://localhost.localstack.cloud:4566')}/${auth.userPoolId}`,
     HostedUiDomain: `https://${readEnv('COGNITO_DOMAIN_PREFIX', 'dynamodb-mvp-local')}.auth.${region}.amazoncognito.com`,
     PlaceOrderQueueUrl: placeOrderQueueUrl,
-    ReleaseReservationQueueUrl: releaseReservationQueueUrl,
   }
 }
 
