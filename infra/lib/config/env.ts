@@ -34,6 +34,7 @@ export interface LocalStackInfraEnv {
   dynamoDbLambdaEndpoint: string
   cognitoIdpLambdaEndpoint: string
   paymentConfirmationTimeoutSeconds: string
+  reservationExpiryPollerScheduleMinutes: number
 }
 
 let cachedEnv: LocalStackInfraEnv | undefined
@@ -87,6 +88,10 @@ export function getLocalStackInfraEnv(): LocalStackInfraEnv {
       'http://host.docker.internal:4566',
     ),
     paymentConfirmationTimeoutSeconds: readEnv('PAYMENT_CONFIRMATION_SECONDS_TIMEOUT', '900'),
+    reservationExpiryPollerScheduleMinutes: readPositiveIntegerEnv(
+      'RESERVATION_EXPIRY_POLLER_SCHEDULE_MINUTES',
+      1,
+    ),
   }
 
   return cachedEnv
@@ -122,4 +127,18 @@ function readBooleanEnv(name: string, fallback: boolean): boolean {
   }
 
   return value.toLowerCase() === 'true'
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const value = readOptionalEnv(name)
+  if (!value) {
+    return fallback
+  }
+
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback
+  }
+
+  return parsed
 }

@@ -101,7 +101,9 @@ export class OrdersWorkersConstruct extends Construct {
     )
 
     new events.Rule(this, 'ReservationExpiryPollerSchedule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(1)),
+      schedule: events.Schedule.rate(
+        cdk.Duration.minutes(infraEnv.reservationExpiryPollerScheduleMinutes),
+      ),
       targets: [new eventTargets.LambdaFunction(this.reservationExpiryPoller)],
     })
 

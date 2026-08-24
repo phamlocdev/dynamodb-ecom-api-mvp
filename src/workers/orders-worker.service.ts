@@ -84,6 +84,8 @@ export class OrdersWorkerService {
   async handleReservationExpirySweep(): Promise<void> {
     const nowEpochSeconds = toEpochSeconds(Date.now())
     let exclusiveStartKey: Record<string, unknown> | undefined
+    let expiredOrdersFound = 0
+    let releaseMessagesEnqueued = 0
 
     do {
       const response = await this.ordersService.findExpiredReservedOrders(
@@ -92,9 +94,12 @@ export class OrdersWorkerService {
         exclusiveStartKey,
       )
 
+      expiredOrdersFound += response.items.length
+
       for (const order of response.items) {
         const items = await this.ordersService.findOrderItems(order.orderId)
         if (items.length === 0) {
+          this.logger.warn(`Expired reserved order ${order.orderId} has no order items.`)
           continue
         }
 
@@ -105,10 +110,15 @@ export class OrdersWorkerService {
           targetStatus: OrderStatus.EXPIRED,
           reason: PAYMENT_WINDOW_EXPIRED_REASON,
         })
+        releaseMessagesEnqueued += 1
       }
 
       exclusiveStartKey = response.lastEvaluatedKey
     } while (exclusiveStartKey)
+
+    this.logger.log(
+      `Reservation expiry sweep completed. expiredOrdersFound=${expiredOrdersFound}, releaseMessagesEnqueued=${releaseMessagesEnqueued}`,
+    )
   }
 
   private async handlePlaceOrderRecord(record: SQSRecord): Promise<void> {
