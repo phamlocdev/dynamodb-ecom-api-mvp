@@ -1,12 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
-import {
-  placeOrderDlqName,
-  placeOrderQueueName,
-  releaseReservationDlqName,
-  releaseReservationQueueName,
-} from '../../config/constants'
+import { getLocalStackInfraEnv } from '../../config/env'
 
 export interface SqsConstructProps {
   visibilityTimeout?: cdk.Duration
@@ -15,16 +10,15 @@ export interface SqsConstructProps {
 export class SqsConstruct extends Construct {
   readonly placeOrderDlq: sqs.Queue
   readonly placeOrderQueue: sqs.Queue
-  readonly releaseReservationDlq: sqs.Queue
-  readonly releaseReservationQueue: sqs.Queue
 
   constructor(scope: Construct, id: string, props: SqsConstructProps = {}) {
     super(scope, id)
 
+    const infraEnv = getLocalStackInfraEnv()
     const visibilityTimeout = props.visibilityTimeout ?? cdk.Duration.seconds(60)
 
     this.placeOrderDlq = new sqs.Queue(this, 'PlaceOrderDlq', {
-      queueName: placeOrderDlqName,
+      queueName: infraEnv.placeOrderDlqName,
       fifo: true,
       contentBasedDeduplication: false,
       retentionPeriod: cdk.Duration.days(14),
@@ -32,33 +26,13 @@ export class SqsConstruct extends Construct {
     })
 
     this.placeOrderQueue = new sqs.Queue(this, 'PlaceOrderQueue', {
-      queueName: placeOrderQueueName,
+      queueName: infraEnv.placeOrderQueueName,
       fifo: true,
       contentBasedDeduplication: false,
       receiveMessageWaitTime: cdk.Duration.seconds(20),
       visibilityTimeout,
       deadLetterQueue: {
         queue: this.placeOrderDlq,
-        maxReceiveCount: 3,
-      },
-    })
-
-    this.releaseReservationDlq = new sqs.Queue(this, 'ReleaseReservationDlq', {
-      queueName: releaseReservationDlqName,
-      fifo: true,
-      contentBasedDeduplication: false,
-      retentionPeriod: cdk.Duration.days(14),
-      visibilityTimeout,
-    })
-
-    this.releaseReservationQueue = new sqs.Queue(this, 'ReleaseReservationQueue', {
-      queueName: releaseReservationQueueName,
-      fifo: true,
-      contentBasedDeduplication: false,
-      receiveMessageWaitTime: cdk.Duration.seconds(20),
-      visibilityTimeout,
-      deadLetterQueue: {
-        queue: this.releaseReservationDlq,
         maxReceiveCount: 3,
       },
     })

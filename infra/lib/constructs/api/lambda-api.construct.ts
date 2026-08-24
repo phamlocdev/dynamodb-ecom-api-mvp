@@ -1,21 +1,12 @@
 import * as path from 'path'
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
-import {
-  cartItemsTableName,
-  cartsTableName,
-  categoriesTableName,
-  inventoryTableName,
-  orderItemsTableName,
-  ordersTableName,
-  placeOrderQueueName,
-  productsTableName,
-  releaseReservationQueueName,
-} from '../../config/constants'
+import { getLocalStackInfraEnv } from '../../config/env'
 import { createNodejsBundling, removeGeneratedSourceArtifacts } from '../../shared/lambda-bundling'
 
 export interface LambdaApiConstructProps {
@@ -27,7 +18,6 @@ export interface LambdaApiConstructProps {
   orderItemsTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   placeOrderQueue: sqs.IQueue
-  releaseReservationQueue: sqs.IQueue
   userPoolId: string
   userPoolClientId: string
 }
@@ -37,6 +27,7 @@ export class LambdaApiConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: LambdaApiConstructProps) {
     super(scope, id)
+    const infraEnv = getLocalStackInfraEnv()
 
     this.apiHandler = new nodejs.NodejsFunction(this, 'ApiHandler', {
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -48,21 +39,20 @@ export class LambdaApiConstruct extends Construct {
         afterBundling: () => removeGeneratedSourceArtifacts(),
       }),
       environment: {
-        PRODUCTS_TABLE: productsTableName,
-        CATEGORIES_TABLE: categoriesTableName,
-        CARTS_TABLE: cartsTableName,
-        CART_ITEMS_TABLE: cartItemsTableName,
-        ORDERS_TABLE: ordersTableName,
-        ORDER_ITEMS_TABLE: orderItemsTableName,
-        INVENTORY_TABLE: inventoryTableName,
-        DYNAMODB_ENDPOINT: 'http://host.docker.internal:4566',
-        COGNITO_IDP_ENDPOINT: 'http://host.docker.internal:4566',
+        PRODUCTS_TABLE: infraEnv.productsTableName,
+        CATEGORIES_TABLE: infraEnv.categoriesTableName,
+        CARTS_TABLE: infraEnv.cartsTableName,
+        CART_ITEMS_TABLE: infraEnv.cartItemsTableName,
+        ORDERS_TABLE: infraEnv.ordersTableName,
+        ORDER_ITEMS_TABLE: infraEnv.orderItemsTableName,
+        INVENTORY_TABLE: infraEnv.inventoryTableName,
+        DYNAMODB_ENDPOINT: infraEnv.dynamoDbLambdaEndpoint,
+        COGNITO_IDP_ENDPOINT: infraEnv.cognitoIdpLambdaEndpoint,
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
-        PLACE_ORDER_QUEUE_NAME: placeOrderQueueName,
-        RELEASE_RESERVATION_QUEUE_URL: props.releaseReservationQueue.queueUrl,
-        RELEASE_RESERVATION_QUEUE_NAME: releaseReservationQueueName,
+        PLACE_ORDER_QUEUE_NAME: infraEnv.placeOrderQueueName,
+        PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: infraEnv.paymentConfirmationTimeoutSeconds,
       },
     })
 
@@ -74,6 +64,12 @@ export class LambdaApiConstruct extends Construct {
     props.orderItemsTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
-    props.releaseReservationQueue.grantSendMessages(this.apiHandler)
+
+    this.apiHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['dynamodb:TransactWriteItems'],
+        resources: [props.ordersTable.tableArn, props.inventoryTable.tableArn],
+      }),
+    )
   }
 }
