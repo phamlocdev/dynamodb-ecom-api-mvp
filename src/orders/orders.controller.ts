@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Query,
+  Req,
 } from '@nestjs/common'
 import {
   ApiAcceptedResponse,
@@ -17,8 +18,10 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger'
+import { type Request } from 'express'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { AuthenticatedUser } from '../auth/auth.types'
+import { PaginatedResponse } from '../pagination/pagination.types'
 import { DtoValidationPipe } from '../validation/dto-validation.pipe'
 import { CreateOrderDto } from './dto/create-order.dto'
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto'
@@ -31,7 +34,6 @@ import {
 } from './dto/order-response.dto'
 import { OrdersService } from './orders.service'
 import { Order, OrderDetails } from './orders.types'
-import { PaginatedResponse } from '../pagination/pagination.types'
 
 @ApiTags('orders')
 @Controller('orders')
@@ -79,17 +81,28 @@ export class OrdersController {
 
   @Post(':orderId/pay')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Mark a reserved order as paid' })
+  @ApiOperation({ summary: 'Create a VNPay payment URL for a reserved order' })
   @ApiParam({ name: 'orderId', format: 'uuid' })
   @ApiOkResponse({ type: TriggerPaymentResponseDto })
   async pay(
     @CurrentUser() user: AuthenticatedUser,
     @Param('orderId') orderId: string,
+    @Req() request: Request,
   ): Promise<TriggerPaymentResponseDto> {
-    const order = await this.ordersService.triggerPayment(user, orderId)
-    return {
-      orderId: order.orderId,
-      paymentStatus: order.paymentStatus,
-    }
+    return this.ordersService.triggerPayment(user, orderId, resolveClientIp(request))
   }
+}
+
+function resolveClientIp(request: Request): string {
+  const forwardedFor = request.headers['x-forwarded-for']
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0]?.trim() ?? '127.0.0.1'
+  }
+
+  const apiGatewaySourceIp = (request as Request & { apiGateway?: { event?: { requestContext?: { http?: { sourceIp?: string } } } } }).apiGateway?.event?.requestContext?.http?.sourceIp
+  if (apiGatewaySourceIp) {
+    return apiGatewaySourceIp
+  }
+
+  return request.ip || '127.0.0.1'
 }

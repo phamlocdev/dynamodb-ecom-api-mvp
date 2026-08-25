@@ -11,6 +11,7 @@ export class DynamoDbConstruct extends Construct {
   readonly ordersTable: dynamodb.Table
   readonly orderItemsTable: dynamodb.Table
   readonly inventoryTable: dynamodb.Table
+  readonly userProfilesTable: dynamodb.Table
 
   constructor(scope: Construct, id: string) {
     super(scope, id)
@@ -90,6 +91,13 @@ export class DynamoDbConstruct extends Construct {
     this.inventoryTable = new dynamodb.Table(this, 'InventoryTable', {
       tableName: infraEnv.inventoryTableName,
       partitionKey: { name: 'productId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.userProfilesTable = new dynamodb.Table(this, 'UserProfilesTable', {
+      tableName: infraEnv.userProfilesTableName,
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     })

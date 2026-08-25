@@ -43,7 +43,15 @@ export class OrdersWorkersConstruct extends Construct {
       COGNITO_IDP_ENDPOINT: infraEnv.cognitoIdpLambdaEndpoint,
       COGNITO_USER_POOL_ID: props.userPoolId,
       COGNITO_CLIENT_ID: props.userPoolClientId,
-      PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: infraEnv.paymentConfirmationTimeoutSeconds,
+      PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
+      VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
+      VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
+      VNPAY_PAYMENT_URL: infraEnv.vnpayPaymentUrl,
+      VNPAY_RETURN_URL: infraEnv.vnpayReturnUrl,
+      VNPAY_IPN_URL: infraEnv.vnpayIpnUrl,
+      VNPAY_LOCALE: infraEnv.vnpayLocale,
+      VNPAY_ORDER_TYPE: infraEnv.vnpayOrderType,
+      VNPAY_API_IP_ADDR: infraEnv.vnpayApiIpAddr,
       // PLACE_ORDER_DELAY_MS: '10000',
     }
 
