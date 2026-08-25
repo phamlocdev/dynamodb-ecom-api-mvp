@@ -5,12 +5,16 @@ import { DynamoDbModule } from '../dynamodb/dynamodb.module'
 import { InventoryModule } from '../inventory/inventory.module'
 import { OrdersModule } from '../orders/orders.module'
 import { ProductsModule } from '../products/products.module'
+import { validateRuntimeEnv } from '../config/env.validation'
 import { UsersModule } from '../users/users.module'
 import { OrdersWorkerService } from './orders-worker.service'
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validateRuntimeEnv,
+    }),
     DynamoDbModule,
     UsersModule,
     ProductsModule,

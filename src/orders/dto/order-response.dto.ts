@@ -99,8 +99,27 @@ export class TriggerPaymentResponseDto {
   @ApiProperty({ format: 'uuid' })
   orderId!: string
 
-  @ApiProperty({ enum: PaymentStatus, example: PaymentStatus.PAID })
+  @ApiProperty({ enum: PaymentStatus, example: PaymentStatus.PROCESSING })
   paymentStatus!: PaymentStatus
+
+  @ApiProperty()
+  paymentUrl!: string
+
+  @ApiPropertyOptional()
+  paymentExpiresAt?: number
+}
+
+export class VnpayReturnResponseDto {
+  @ApiProperty()
+  redirectUrl!: string
+}
+
+export class VnpayIpnResponseDto {
+  @ApiProperty()
+  RspCode!: string
+
+  @ApiProperty()
+  Message!: string
 }
 
 export class PaginatedOrderResponseDto extends PaginatedResponseDto<OrderResponseDto> {

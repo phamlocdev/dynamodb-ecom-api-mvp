@@ -24,6 +24,17 @@ export interface Order {
   totalAmount?: number
 }
 
+export interface TriggerPaymentResult {
+  orderId: string
+  paymentStatus: PaymentStatus
+  paymentUrl: string
+  paymentExpiresAt?: number
+}
+
+export interface VnpayReturnResult {
+  redirectUrl: string
+}
+
 export interface OrderItem {
   orderId: string
   lineId: string

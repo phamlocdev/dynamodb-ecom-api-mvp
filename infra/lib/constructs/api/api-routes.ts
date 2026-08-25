@@ -110,6 +110,16 @@ export function registerApiRoutes(
     ...localRouteAuthOptions(authorizer),
   })
   api.addRoutes({
+    path: '/payments/vnpay/return',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+  })
+  api.addRoutes({
+    path: '/payments/vnpay/ipn',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+  })
+  api.addRoutes({
     path: '/inventories',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,

@@ -36,7 +36,9 @@
     "dotenv": "^17.4.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "vnpay": "^2.5.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@aws-sdk/client-apigatewayv2": "^3.1107.0",

@@ -36,6 +36,11 @@ async function main(): Promise<void> {
     COGNITO_USER_POOL_ID: requireOutput(outputs, 'CognitoUserPoolId'),
     COGNITO_CLIENT_ID: requireOutput(outputs, 'CognitoClientId'),
     PLACE_ORDER_QUEUE_URL: requireOutput(outputs, 'PlaceOrderQueueUrl'),
+    VNPAY_RETURN_URL: buildApiUrl(
+      requireOutput(outputs, 'LocalStackApiGatewayUrl'),
+      'payments/vnpay/return',
+    ),
+    VNPAY_IPN_URL: buildApiUrl(requireOutput(outputs, 'LocalStackApiGatewayUrl'), 'payments/vnpay/ipn'),
   })
 
   updateEnvFile(clientEnvPath, {
@@ -212,6 +217,10 @@ function buildLocalStackApiUrl(apiId: string, apiEndpoint: string): string {
 
 function ensureTrailingSlash(value: string): string {
   return value.endsWith('/') ? value : `${value}/`
+}
+
+function buildApiUrl(baseUrl: string, pathName: string): string {
+  return new URL(pathName, ensureTrailingSlash(baseUrl)).toString()
 }
 
 function writeOutputs(filePath: string, outputs: StackOutputs): void {
