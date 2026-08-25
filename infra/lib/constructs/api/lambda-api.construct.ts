@@ -52,7 +52,15 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         PLACE_ORDER_QUEUE_NAME: infraEnv.placeOrderQueueName,
-        PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: infraEnv.paymentConfirmationTimeoutSeconds,
+        PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
+        VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
+        VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
+        VNPAY_PAYMENT_URL: infraEnv.vnpayPaymentUrl,
+        VNPAY_RETURN_URL: infraEnv.vnpayReturnUrl,
+        VNPAY_IPN_URL: infraEnv.vnpayIpnUrl,
+        VNPAY_LOCALE: infraEnv.vnpayLocale,
+        VNPAY_ORDER_TYPE: infraEnv.vnpayOrderType,
+        VNPAY_API_IP_ADDR: infraEnv.vnpayApiIpAddr,
       },
     })
 
