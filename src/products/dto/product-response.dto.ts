@@ -24,6 +24,9 @@ export class ProductResponseDto {
   @ApiPropertyOptional()
   imageUrl?: string
 
+  @ApiPropertyOptional({ type: () => [ProductImageResponseDto] })
+  images?: ProductImageResponseDto[]
+
   @ApiProperty({ enum: ProductStatus })
   status!: ProductStatus
 
@@ -32,6 +35,26 @@ export class ProductResponseDto {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: string
+}
+
+export class ProductImageResponseDto {
+  @ApiProperty()
+  key!: string
+
+  @ApiProperty()
+  sortOrder!: number
+
+  @ApiProperty()
+  isPrimary!: boolean
+
+  @ApiPropertyOptional()
+  altText?: string
+
+  @ApiPropertyOptional()
+  readUrl?: string
+
+  @ApiPropertyOptional({ example: 900 })
+  readUrlExpiresInSeconds?: number
 }
 
 export class PaginatedProductResponseDto extends PaginatedResponseDto<ProductResponseDto> {

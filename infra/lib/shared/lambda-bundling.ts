@@ -11,10 +11,13 @@ const sharedExternalModules = [
 export function createNodejsBundling(
   options: {
     afterBundling?: nodejs.ICommandHooks['afterBundling']
+    nodeModules?: string[]
+    forceDockerBundling?: boolean
+    preCompilation?: boolean
   } = {},
 ): nodejs.BundlingOptions {
   return {
-    preCompilation: true,
+    preCompilation: options.preCompilation ?? true,
     bundleAwsSDK: true,
     externalModules: sharedExternalModules,
     keepNames: true,
@@ -22,6 +25,8 @@ export function createNodejsBundling(
     sourceMap: true,
     target: 'node24',
     tsconfig: path.join(__dirname, '..', '..', '..', 'tsconfig.json'),
+    ...(options.nodeModules ? { nodeModules: options.nodeModules } : {}),
+    ...(options.forceDockerBundling ? { forceDockerBundling: true } : {}),
     commandHooks: {
       beforeBundling: () => [],
       beforeInstall: () => [],

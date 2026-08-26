@@ -8,6 +8,7 @@ import { OrdersWorkersConstruct } from '../constructs/messaging/orders-workers.c
 import { SqsConstruct } from '../constructs/messaging/sqs.construct'
 import { SesConstruct } from '../constructs/notification/ses.construct'
 import { S3Construct } from '../constructs/storage/s3.construct'
+import { ImageProcessorConstruct } from '../constructs/storage/image-processor.construct'
 import { getLocalStackInfraEnv } from '../config/env'
 
 export class ServerLocalStack extends cdk.Stack {
@@ -19,6 +20,13 @@ export class ServerLocalStack extends cdk.Stack {
     const data = new DynamoDbConstruct(this, 'Data')
     const messaging = new SqsConstruct(this, 'Messaging', {
       visibilityTimeout: cdk.Duration.seconds(90),
+    })
+    const storage = new S3Construct(this, 'Storage', {
+      bucketName: env.mediaBucketName,
+      clientOrigins: env.clientOrigins,
+    })
+    new ImageProcessorConstruct(this, 'ImageProcessor', {
+      mediaBucket: storage.mediaBucket,
     })
 
     const auth = new CognitoConstruct(this, 'Auth', {
@@ -37,6 +45,8 @@ export class ServerLocalStack extends cdk.Stack {
       ordersTable: data.ordersTable,
       orderItemsTable: data.orderItemsTable,
       inventoryTable: data.inventoryTable,
+      userProfilesTable: data.userProfilesTable,
+      mediaBucket: storage.mediaBucket,
       placeOrderQueue: messaging.placeOrderQueue,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
@@ -61,7 +71,6 @@ export class ServerLocalStack extends cdk.Stack {
       clientOrigins: env.clientOrigins,
     })
 
-    new S3Construct(this, 'Storage')
     new SesConstruct(this, 'Notification')
 
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {
@@ -94,6 +103,10 @@ export class ServerLocalStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'PlaceOrderQueueUrl', {
       value: messaging.placeOrderQueue.queueUrl,
+    })
+
+    new cdk.CfnOutput(this, 'MediaBucketName', {
+      value: storage.mediaBucket.bucketName,
     })
   }
 }
