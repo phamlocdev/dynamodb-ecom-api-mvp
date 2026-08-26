@@ -38,6 +38,13 @@ export function registerApiRoutes(
   })
 
   api.addRoutes({
+    path: '/upload/presign',
+    methods: [apigatewayv2.HttpMethod.POST],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+
+  api.addRoutes({
     path: '/categories',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,
@@ -62,6 +69,12 @@ export function registerApiRoutes(
   api.addRoutes({
     path: '/users',
     methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...localRouteAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/me/profile',
+    methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.PATCH],
     integration,
     ...localRouteAuthOptions(authorizer),
   })

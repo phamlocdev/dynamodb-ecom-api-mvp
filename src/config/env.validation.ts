@@ -9,19 +9,25 @@ const optionalTrimmedString = z.preprocess(
 
 const urlString = z.string().trim().url()
 
-const booleanFromEnv = z.preprocess((value) => {
-  if (typeof value === 'string') {
-    return value.trim().toLowerCase()
-  }
+const booleanFromEnv = z.preprocess(
+  (value) => {
+    if (typeof value === 'string') {
+      return value.trim().toLowerCase()
+    }
 
-  return value
-}, z.union([z.literal('true'), z.literal('false')]).transform((value) => value === 'true'))
+    return value
+  },
+  z.union([z.literal('true'), z.literal('false')]).transform((value) => value === 'true'),
+)
 
 const positiveIntegerFromEnv = z.coerce.number().int().positive()
-const ipv4AddressString = z.string().trim().regex(
-  /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/,
-  'Expected a valid IPv4 address',
-)
+const ipv4AddressString = z
+  .string()
+  .trim()
+  .regex(
+    /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/,
+    'Expected a valid IPv4 address',
+  )
 
 function splitCsv(value: string | undefined, fallback: string[]): string[] {
   if (!value) {
@@ -52,7 +58,7 @@ const runtimeEnvSchema = z.object({
   INVENTORY_TABLE: trimmedString.default('inventory'),
   ORDERS_TABLE: trimmedString.default('orders'),
   ORDER_ITEMS_TABLE: trimmedString.default('order-items'),
-  USER_PROFILES_TABLE: optionalTrimmedString,
+  USER_PROFILES_TABLE: trimmedString.default('user-profiles'),
   UPLOAD_SESSIONS_TABLE: optionalTrimmedString,
   PLACE_ORDER_QUEUE_NAME: trimmedString.default('place-order.fifo'),
   PLACE_ORDER_DLQ_NAME: trimmedString.default('place-order-dlq.fifo'),
@@ -66,7 +72,9 @@ const runtimeEnvSchema = z.object({
   COGNITO_IDP_LAMBDA_ENDPOINT: urlString.default('http://host.docker.internal:4566'),
   ENABLE_LOCALSTACK_COGNITO_TRIGGERS: booleanFromEnv.default(true),
   ENABLE_LOCALSTACK_API_GATEWAY_AUTHORIZER: booleanFromEnv.default(true),
-  CLIENT_COGNITO_CALLBACK_URLS: trimmedString.default('http://localhost:3000/auth/hosted-ui/callback'),
+  CLIENT_COGNITO_CALLBACK_URLS: trimmedString.default(
+    'http://localhost:3000/auth/hosted-ui/callback',
+  ),
   CLIENT_COGNITO_LOGOUT_URLS: trimmedString.default('http://localhost:3000/auth/login'),
   CLIENT_CORS_ORIGINS: trimmedString.default('http://localhost:3000'),
   COGNITO_DOMAIN_PREFIX: trimmedString.default('dynamodb-mvp-local'),
@@ -74,11 +82,11 @@ const runtimeEnvSchema = z.object({
   S3_ENDPOINT: optionalTrimmedString,
   S3_LAMBDA_ENDPOINT: optionalTrimmedString,
   S3_PUBLIC_ENDPOINT: optionalTrimmedString,
-  MEDIA_BUCKET_NAME: optionalTrimmedString,
-  PRODUCT_IMAGE_MAX_COUNT: positiveIntegerFromEnv.optional(),
+  MEDIA_BUCKET_NAME: trimmedString.default('ecommerce-media-local'),
+  PRODUCT_IMAGE_MAX_COUNT: positiveIntegerFromEnv.default(10),
   UPLOAD_SESSION_TTL_HOURS: positiveIntegerFromEnv.optional(),
-  MEDIA_READ_URL_TTL_SECONDS: positiveIntegerFromEnv.optional(),
-  UPLOAD_MAX_FILE_SIZE_BYTES: positiveIntegerFromEnv.optional(),
+  MEDIA_READ_URL_TTL_SECONDS: positiveIntegerFromEnv.default(900),
+  UPLOAD_MAX_FILE_SIZE_BYTES: positiveIntegerFromEnv.default(5242880),
   ORDERS_ENTITY_TYPE: trimmedString.default('ORDER'),
   PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: positiveIntegerFromEnv.default(60),
   RESERVATION_EXPIRY_POLLER_SCHEDULE_MINUTES: positiveIntegerFromEnv.default(1),
@@ -119,6 +127,7 @@ const localStackInfraEnvSchema = runtimeEnvSchema.transform((environment) => ({
   ordersTableName: environment.ORDERS_TABLE,
   orderItemsTableName: environment.ORDER_ITEMS_TABLE,
   inventoryTableName: environment.INVENTORY_TABLE,
+  userProfilesTableName: environment.USER_PROFILES_TABLE,
   placeOrderQueueName: environment.PLACE_ORDER_QUEUE_NAME,
   placeOrderDlqName: environment.PLACE_ORDER_DLQ_NAME,
   ordersEntityType: environment.ORDERS_ENTITY_TYPE,
@@ -127,6 +136,13 @@ const localStackInfraEnvSchema = runtimeEnvSchema.transform((environment) => ({
   enableLocalStackApiGatewayAuthorizer: environment.ENABLE_LOCALSTACK_API_GATEWAY_AUTHORIZER,
   dynamoDbLambdaEndpoint: environment.DYNAMODB_LAMBDA_ENDPOINT,
   cognitoIdpLambdaEndpoint: environment.COGNITO_IDP_LAMBDA_ENDPOINT,
+  s3Endpoint: environment.S3_ENDPOINT,
+  s3LambdaEndpoint: environment.S3_LAMBDA_ENDPOINT,
+  s3PublicEndpoint: environment.S3_PUBLIC_ENDPOINT,
+  mediaBucketName: environment.MEDIA_BUCKET_NAME,
+  productImageMaxCount: environment.PRODUCT_IMAGE_MAX_COUNT,
+  mediaReadUrlTtlSeconds: environment.MEDIA_READ_URL_TTL_SECONDS,
+  uploadMaxFileSizeBytes: environment.UPLOAD_MAX_FILE_SIZE_BYTES,
   paymentConfirmationTimeoutSeconds: environment.PAYMENT_CONFIRMATION_SECONDS_TIMEOUT,
   reservationExpiryPollerScheduleMinutes: environment.RESERVATION_EXPIRY_POLLER_SCHEDULE_MINUTES,
   vnpayTmnCode: environment.VNPAY_TMN_CODE,

@@ -9,6 +9,7 @@ import {
   ListUserPoolClientsCommand,
   ListUserPoolsCommand,
 } from '@aws-sdk/client-cognito-identity-provider'
+import { ListBucketsCommand, S3Client } from '@aws-sdk/client-s3'
 import { GetQueueUrlCommand, SQSClient } from '@aws-sdk/client-sqs'
 
 type StackOutputs = Record<string, string>
@@ -36,11 +37,16 @@ async function main(): Promise<void> {
     COGNITO_USER_POOL_ID: requireOutput(outputs, 'CognitoUserPoolId'),
     COGNITO_CLIENT_ID: requireOutput(outputs, 'CognitoClientId'),
     PLACE_ORDER_QUEUE_URL: requireOutput(outputs, 'PlaceOrderQueueUrl'),
+    MEDIA_BUCKET_NAME:
+      outputs.MediaBucketName ?? readEnv('MEDIA_BUCKET_NAME', 'ecommerce-media-local'),
     VNPAY_RETURN_URL: buildApiUrl(
       requireOutput(outputs, 'LocalStackApiGatewayUrl'),
       'payments/vnpay/return',
     ),
-    VNPAY_IPN_URL: buildApiUrl(requireOutput(outputs, 'LocalStackApiGatewayUrl'), 'payments/vnpay/ipn'),
+    VNPAY_IPN_URL: buildApiUrl(
+      requireOutput(outputs, 'LocalStackApiGatewayUrl'),
+      'payments/vnpay/ipn',
+    ),
   })
 
   updateEnvFile(clientEnvPath, {
@@ -113,11 +119,13 @@ async function fetchStackOutputsFromServices(): Promise<StackOutputs> {
   const region = getRegion()
   const apiGatewayClient = new ApiGatewayV2Client(createAwsClientConfig())
   const cognitoClient = new CognitoIdentityProviderClient(createAwsClientConfig())
+  const s3Client = new S3Client(createAwsClientConfig())
   const sqsClient = new SQSClient(createAwsClientConfig())
 
-  const [api, auth, placeOrderQueueUrl] = await Promise.all([
+  const [api, auth, mediaBucketName, placeOrderQueueUrl] = await Promise.all([
     resolveHttpApi(apiGatewayClient),
     resolveCognito(cognitoClient),
+    resolveMediaBucketName(s3Client),
     resolveQueueUrl(sqsClient, readEnv('PLACE_ORDER_QUEUE_NAME', 'place-order.fifo')),
   ])
 
@@ -130,6 +138,7 @@ async function fetchStackOutputsFromServices(): Promise<StackOutputs> {
     CognitoIssuer: `https://cognito-idp.${region}.amazonaws.com/${auth.userPoolId}`,
     LocalStackCognitoIssuer: `${readEnv('LOCALSTACK_COGNITO_BASE_URL', 'http://localhost.localstack.cloud:4566')}/${auth.userPoolId}`,
     HostedUiDomain: `https://${readEnv('COGNITO_DOMAIN_PREFIX', 'dynamodb-mvp-local')}.auth.${region}.amazoncognito.com`,
+    MediaBucketName: mediaBucketName,
     PlaceOrderQueueUrl: placeOrderQueueUrl,
   }
 }
@@ -205,6 +214,18 @@ async function resolveQueueUrl(client: SQSClient, queueName: string): Promise<st
   }
 
   return response.QueueUrl
+}
+
+async function resolveMediaBucketName(client: S3Client): Promise<string> {
+  const bucketName = readEnv('MEDIA_BUCKET_NAME', 'ecommerce-media-local')
+  const response = await client.send(new ListBucketsCommand({}))
+  const bucket = response.Buckets?.find((item) => item.Name === bucketName)
+
+  if (!bucket?.Name) {
+    throw new Error(`Could not find S3 bucket "${bucketName}" in LocalStack.`)
+  }
+
+  return bucket.Name
 }
 
 function buildLocalStackApiUrl(apiId: string, apiEndpoint: string): string {

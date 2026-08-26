@@ -34,6 +34,7 @@ export class HttpApiConstruct extends Construct {
           apigatewayv2.CorsHttpMethod.POST,
           apigatewayv2.CorsHttpMethod.PATCH,
           apigatewayv2.CorsHttpMethod.DELETE,
+          apigatewayv2.CorsHttpMethod.HEAD,
           apigatewayv2.CorsHttpMethod.OPTIONS,
         ],
         allowHeaders: ['authorization', 'content-type'],

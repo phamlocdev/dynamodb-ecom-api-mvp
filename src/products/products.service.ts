@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -19,17 +20,21 @@ import { CreateProductDto } from './dto/create-product.dto'
 import { ListProductsQueryDto } from './dto/list-products-query.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
 import { ProductStatus } from './product-status.enum'
-import { Product } from './product.types'
+import { Product, ProductImage } from './product.types'
 import { CursorScope, PaginatedResponse } from '../pagination/pagination.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
+import { UploadService } from '../upload/upload.service'
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name)
   private readonly tableName: string
 
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(UploadService)
+    private readonly uploadService: UploadService,
     @Inject(ConfigService)
     configService: ConfigService,
   ) {
@@ -38,6 +43,7 @@ export class ProductsService {
 
   async create(dto: CreateProductDto): Promise<Product> {
     const timestamp = new Date().toISOString()
+    const images = await this.prepareProductImages(dto.images)
     const product: Product = {
       productId: randomUUID(),
       name: dto.name,
@@ -46,6 +52,7 @@ export class ProductsService {
       price: dto.price,
       currency: 'VND',
       imageUrl: dto.imageUrl,
+      images,
       status: dto.status ?? ProductStatus.ACTIVE,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -121,13 +128,23 @@ export class ProductsService {
       // Và chưa lấy đủ số LIMIT frontend yêu cầu
     } while (items.length < pagination.limit && lastEvaluatedKey)
 
+    const enrichedItems = await this.withPrimaryImageReadUrls(items)
+
     return {
-      ...toPaginatedResponse('products', pagination, items, lastEvaluatedKey),
+      ...toPaginatedResponse('products', pagination, enrichedItems, lastEvaluatedKey),
       scannedCount,
     }
   }
 
   async findOne(productId: string): Promise<Product> {
+    return this.findStoredOne(productId)
+  }
+
+  async findOneForResponse(productId: string): Promise<Product> {
+    return this.withAllImageReadUrls(await this.findStoredOne(productId))
+  }
+
+  private async findStoredOne(productId: string): Promise<Product> {
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.tableName,
@@ -141,7 +158,14 @@ export class ProductsService {
   }
 
   async update(productId: string, dto: UpdateProductDto): Promise<Product> {
-    const mutableFields = Object.entries(dto).filter(([, value]) => value !== undefined)
+    const existingProduct = await this.findStoredOne(productId)
+    const { images, ...productFieldUpdates } = dto
+    const updates: Partial<Product> = { ...productFieldUpdates }
+    if (images !== undefined) {
+      updates.images = await this.prepareProductImages(images)
+    }
+
+    const mutableFields = Object.entries(updates).filter(([, value]) => value !== undefined)
     if (mutableFields.length === 0) {
       throw new BadRequestException('Provide at least one product field to update.')
     }
@@ -175,7 +199,13 @@ export class ProductsService {
           ReturnValues: 'ALL_NEW',
         }),
       )
-      return response.Attributes as Product
+      const updatedProduct = response.Attributes as Product
+
+      if (images !== undefined) {
+        await this.deleteRemovedProductImages(existingProduct.images, updatedProduct.images)
+      }
+
+      return updatedProduct
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
         throw new NotFoundException(`Product ${productId} was not found.`)
@@ -185,6 +215,8 @@ export class ProductsService {
   }
 
   async remove(productId: string): Promise<void> {
+    const existingProduct = await this.findStoredOne(productId)
+
     try {
       await this.dynamoDbService.documentClient.send(
         new DeleteCommand({
@@ -194,6 +226,7 @@ export class ProductsService {
           ExpressionAttributeNames: { '#productId': 'productId' },
         }),
       )
+      await this.uploadService.deleteObjectsBestEffort(getProductImageKeys(existingProduct.images))
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
         throw new NotFoundException(`Product ${productId} was not found.`)
@@ -201,6 +234,125 @@ export class ProductsService {
       throw error
     }
   }
+
+  private async prepareProductImages(
+    images: CreateProductDto['images'],
+  ): Promise<ProductImage[] | undefined> {
+    if (images === undefined) {
+      return undefined
+    }
+
+    const maxImageCount = this.uploadService.getProductImageMaxCount()
+    if (images.length > maxImageCount) {
+      throw new BadRequestException(`Product images cannot exceed ${maxImageCount} files.`)
+    }
+
+    const duplicateKey = findDuplicate(images.map((image) => image.key))
+    if (duplicateKey) {
+      throw new BadRequestException(`Duplicate product image key: ${duplicateKey}`)
+    }
+
+    const normalizedImages = images.map((image) => ({
+      key: image.key,
+      sortOrder: image.sortOrder,
+      isPrimary: image.isPrimary ?? false,
+      ...(image.altText ? { altText: image.altText } : {}),
+    }))
+
+    const primaryCount = normalizedImages.filter((image) => image.isPrimary).length
+    if (primaryCount > 1) {
+      throw new BadRequestException('Only one product image can be primary.')
+    }
+    if (normalizedImages.length > 0 && primaryCount === 0) {
+      normalizedImages[0].isPrimary = true
+    }
+
+    await this.uploadService.verifyObjectsExist(getProductImageKeys(normalizedImages))
+    return normalizedImages
+  }
+
+  private async withPrimaryImageReadUrls(products: Product[]): Promise<Product[]> {
+    return Promise.all(products.map((product) => this.withPrimaryImageReadUrl(product)))
+  }
+
+  private async withPrimaryImageReadUrl(product: Product): Promise<Product> {
+    const primaryImage = product.images?.find((image) => image.isPrimary) ?? product.images?.[0]
+    if (!primaryImage) {
+      return product
+    }
+
+    const [readUrl] = await this.uploadService.createReadUrls([primaryImage.key])
+    return {
+      ...product,
+      images: [
+        {
+          ...primaryImage,
+          readUrl: readUrl.readUrl,
+          readUrlExpiresInSeconds: readUrl.expiresInSeconds,
+        },
+      ],
+    }
+  }
+
+  private async withAllImageReadUrls(product: Product): Promise<Product> {
+    if (!product.images || product.images.length === 0) {
+      return product
+    }
+
+    const readUrls = await this.uploadService.createReadUrls(getProductImageKeys(product.images))
+    const readUrlByKey = new Map(readUrls.map((item) => [item.key, item] as const))
+
+    return {
+      ...product,
+      images: product.images.map((image) => {
+        const readUrl = readUrlByKey.get(image.key)
+        return readUrl
+          ? {
+              ...image,
+              readUrl: readUrl.readUrl,
+              readUrlExpiresInSeconds: readUrl.expiresInSeconds,
+            }
+          : image
+      }),
+    }
+  }
+
+  private async deleteRemovedProductImages(
+    previousImages: ProductImage[] | undefined,
+    nextImages: ProductImage[] | undefined,
+  ): Promise<void> {
+    const nextKeys = new Set(getProductImageKeys(nextImages))
+    const removedKeys = getProductImageKeys(previousImages).filter((key) => !nextKeys.has(key))
+
+    if (removedKeys.length === 0) {
+      return
+    }
+
+    try {
+      await this.uploadService.deleteObjectsBestEffort(removedKeys)
+    } catch (error) {
+      this.logger.error(
+        `Failed to delete removed product images for ${removedKeys.join(', ')}`,
+        error,
+      )
+    }
+  }
+}
+
+function getProductImageKeys(images: ProductImage[] | undefined): string[] {
+  return images?.map((image) => image.key) ?? []
+}
+
+function findDuplicate(values: string[]): string | undefined {
+  const seen = new Set<string>()
+  return values.find((value) => {
+    if (seen.has(value)) {
+      return true
+    }
+
+    seen.add(value)
+    return false
+  })
 }
 
 interface ProductFilters {

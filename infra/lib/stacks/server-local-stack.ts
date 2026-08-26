@@ -20,6 +20,10 @@ export class ServerLocalStack extends cdk.Stack {
     const messaging = new SqsConstruct(this, 'Messaging', {
       visibilityTimeout: cdk.Duration.seconds(90),
     })
+    const storage = new S3Construct(this, 'Storage', {
+      bucketName: env.mediaBucketName,
+      clientOrigins: env.clientOrigins,
+    })
 
     const auth = new CognitoConstruct(this, 'Auth', {
       callbackUrls: env.callbackUrls,
@@ -37,6 +41,8 @@ export class ServerLocalStack extends cdk.Stack {
       ordersTable: data.ordersTable,
       orderItemsTable: data.orderItemsTable,
       inventoryTable: data.inventoryTable,
+      userProfilesTable: data.userProfilesTable,
+      mediaBucket: storage.mediaBucket,
       placeOrderQueue: messaging.placeOrderQueue,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
@@ -61,7 +67,6 @@ export class ServerLocalStack extends cdk.Stack {
       clientOrigins: env.clientOrigins,
     })
 
-    new S3Construct(this, 'Storage')
     new SesConstruct(this, 'Notification')
 
     new cdk.CfnOutput(this, 'ApiGatewayUrl', {
@@ -94,6 +99,10 @@ export class ServerLocalStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'PlaceOrderQueueUrl', {
       value: messaging.placeOrderQueue.queueUrl,
+    })
+
+    new cdk.CfnOutput(this, 'MediaBucketName', {
+      value: storage.mediaBucket.bucketName,
     })
   }
 }

@@ -17,3 +17,15 @@ export interface CustomerProfile {
   name?: string
   sub?: string
 }
+
+export interface UserProfile {
+  userId: string
+  username: string
+  email?: string
+  name?: string
+  avatarKey?: string
+  avatarReadUrl?: string
+  avatarReadUrlExpiresInSeconds?: number
+  createdAt: string
+  updatedAt: string
+}

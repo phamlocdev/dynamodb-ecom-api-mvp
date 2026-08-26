@@ -110,7 +110,7 @@ export class ProductsController {
   @ApiOkResponse({ type: ProductResponseDto })
   @ApiNotFoundResponse({ description: 'Product does not exist.' })
   findOne(@Param('productId') productId: string): Promise<Product> {
-    return this.productsService.findOne(productId)
+    return this.productsService.findOneForResponse(productId)
   }
 
   @Patch(':productId')
