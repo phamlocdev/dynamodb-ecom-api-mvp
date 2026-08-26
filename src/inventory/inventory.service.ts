@@ -1,6 +1,18 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { BatchGetCommand, GetCommand, PutCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
+import {
+  BatchGetCommand,
+  GetCommand,
+  PutCommand,
+  ScanCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { DEFAULT_PAGE_SIZE } from '../pagination/pagination-query.dto'
 import { CursorScope, PaginatedResponse } from '../pagination/pagination.types'
@@ -99,7 +111,9 @@ export class InventoryService {
         products.map((product) => this.ensureInventoryRecord(product.productId)),
       )
 
-      items.push(...products.map((product, index) => toInventorySummary(product, inventoryRecords[index])))
+      items.push(
+        ...products.map((product, index) => toInventorySummary(product, inventoryRecords[index])),
+      )
       scannedCount += response.ScannedCount ?? 0
       lastEvaluatedKey = response.LastEvaluatedKey
     } while (items.length < pagination.limit && lastEvaluatedKey)
@@ -116,7 +130,10 @@ export class InventoryService {
     return toInventorySummary(product, inventory)
   }
 
-  async updateAvailableQuantity(productId: string, availableQuantity: number): Promise<InventorySummary> {
+  async updateAvailableQuantity(
+    productId: string,
+    availableQuantity: number,
+  ): Promise<InventorySummary> {
     if (availableQuantity < 0) {
       throw new BadRequestException('availableQuantity must be a non-negative integer.')
     }
@@ -199,7 +216,7 @@ export class InventoryService {
         }),
       )
 
-      products.push(...(((response.Responses?.[this.productsTableName] ?? []) as Product[])))
+      products.push(...((response.Responses?.[this.productsTableName] ?? []) as Product[]))
     }
 
     const productMap = new Map(products.map((product) => [product.productId, product] as const))
@@ -208,7 +225,9 @@ export class InventoryService {
       .filter((product): product is Product => Boolean(product))
   }
 
-  private async findOrCreateInventoryRecordsByProductIds(productIds: string[]): Promise<InventoryRecord[]> {
+  private async findOrCreateInventoryRecordsByProductIds(
+    productIds: string[],
+  ): Promise<InventoryRecord[]> {
     if (productIds.length === 0) {
       return []
     }
@@ -227,7 +246,7 @@ export class InventoryService {
         }),
       )
 
-      inventoryRecords.push(...(((response.Responses?.[this.tableName] ?? []) as InventoryRecord[])))
+      inventoryRecords.push(...((response.Responses?.[this.tableName] ?? []) as InventoryRecord[]))
     }
 
     const inventoryMap = new Map(
@@ -372,7 +391,9 @@ function buildInventoryProductFilterExpression(
     names['#name'] = 'name'
     names['#description'] = 'description'
     values[':q'] = filters.q
-    expressions.push('(contains(#productId, :q) OR contains(#name, :q) OR contains(#description, :q))')
+    expressions.push(
+      '(contains(#productId, :q) OR contains(#name, :q) OR contains(#description, :q))',
+    )
   }
 
   if (expressions.length === 0) {

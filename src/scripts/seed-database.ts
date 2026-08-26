@@ -1,10 +1,12 @@
-import 'dotenv/config'
+import * as dotenv from 'dotenv'
 import { BatchWriteCommand, BatchWriteCommandInput, ScanCommand } from '@aws-sdk/lib-dynamodb'
 import { createDynamoDbDocumentClient } from '../dynamodb/dynamodb.config'
 import { Category } from '../categories/category.types'
 import { InventoryRecord } from '../inventory/inventory.types'
 import { ProductStatus } from '../products/product-status.enum'
 import { Product } from '../products/product.types'
+
+dotenv.config({ path: process.env.RUNTIME_ENV_FILE ?? '.env.dev' })
 
 const BATCH_WRITE_SIZE = 25
 const seedTimestamp = '2026-08-12T00:00:00.000Z'

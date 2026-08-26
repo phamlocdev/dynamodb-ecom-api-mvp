@@ -47,7 +47,9 @@ export class CartsService {
       status: CartStatus.ACTIVE,
       createdAt: timestamp,
       updatedAt: timestamp,
-      expiresAt: toEpochSeconds(Date.now() + (dto.ttlDays ?? DEFAULT_TTL_DAYS) * 24 * 60 * 60 * 1000),
+      expiresAt: toEpochSeconds(
+        Date.now() + (dto.ttlDays ?? DEFAULT_TTL_DAYS) * 24 * 60 * 60 * 1000,
+      ),
     }
 
     await this.dynamoDbService.documentClient.send(
@@ -88,7 +90,11 @@ export class CartsService {
     }
   }
 
-  async addItem(user: AuthenticatedUser, cartId: string, dto: UpsertCartItemDto): Promise<CartDetails> {
+  async addItem(
+    user: AuthenticatedUser,
+    cartId: string,
+    dto: UpsertCartItemDto,
+  ): Promise<CartDetails> {
     const cart = await this.getOwnedCartOrThrow(user.sub, cartId)
     ensureCartUsable(cart)
 

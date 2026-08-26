@@ -45,16 +45,11 @@ export class UploadService {
     const settings = getS3Settings({
       AWS_REGION: configService.get<string>('AWS_REGION'),
       AWS_DEFAULT_REGION: configService.get<string>('AWS_DEFAULT_REGION'),
-      AWS_ACCESS_KEY_ID: configService.get<string>('AWS_ACCESS_KEY_ID'),
-      AWS_SECRET_ACCESS_KEY: configService.get<string>('AWS_SECRET_ACCESS_KEY'),
-      S3_ENDPOINT: configService.get<string>('S3_ENDPOINT'),
-      S3_LAMBDA_ENDPOINT: configService.get<string>('S3_LAMBDA_ENDPOINT'),
-      S3_PUBLIC_ENDPOINT: configService.get<string>('S3_PUBLIC_ENDPOINT'),
       MEDIA_BUCKET_NAME: configService.get<string>('MEDIA_BUCKET_NAME'),
     })
 
-    this.internalClient = createS3Client(settings.internalEndpoint, settings)
-    this.publicClient = createS3Client(settings.publicEndpoint, settings)
+    this.internalClient = createS3Client(settings)
+    this.publicClient = createS3Client(settings)
     this.bucketName = settings.bucketName
     this.productImageMaxCount = readPositiveInteger(
       configService.get<number>('PRODUCT_IMAGE_MAX_COUNT'),

@@ -5,11 +5,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { AppModule } from './app.module'
 
 const { eventContext } = require('@codegenie/serverless-express/src/middleware') as {
-  eventContext: (options?: { reqPropKey?: string; deleteHeaders?: boolean }) => (
-    req: unknown,
-    res: unknown,
-    next: () => void,
-  ) => void
+  eventContext: (options?: {
+    reqPropKey?: string
+    deleteHeaders?: boolean
+  }) => (req: unknown, res: unknown, next: () => void) => void
 }
 
 export interface BootstrapOptions {
@@ -34,7 +33,7 @@ export async function createNestApp(
   if (options.enableSwagger) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('DynamoDB E-commerce Learning API')
-      .setDescription('REST API for learning DynamoDB with LocalStack')
+      .setDescription('REST API for learning DynamoDB on AWS')
       .setVersion('1.0')
       .build()
     const document = SwaggerModule.createDocument(app, swaggerConfig)

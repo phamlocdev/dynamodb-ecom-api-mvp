@@ -247,7 +247,7 @@ export class OrdersService {
         'Payment window is about to expire. Please place the order again.',
       )
     }
-    const paymentUrl = this.vnpayService.buildOrderPaymentUrl({
+    const paymentUrl = await this.vnpayService.buildOrderPaymentUrl({
       amount: order.totalAmount,
       clientIp,
       createDate: requestedAt,
@@ -311,7 +311,7 @@ export class OrdersService {
 
   async handleVnpayReturn(query: Record<string, string>): Promise<VnpayReturnResult> {
     try {
-      const verify = this.vnpayService.verifyReturnQuery(query)
+      const verify = await this.vnpayService.verifyReturnQuery(query)
       if (verify.isVerified) {
         try {
           await this.reconcileVerifiedGatewayResult(verify, 'return')
@@ -343,7 +343,7 @@ export class OrdersService {
     let verify: VerifyIpnCall
 
     try {
-      verify = this.vnpayService.verifyIpnQuery(query)
+      verify = await this.vnpayService.verifyIpnQuery(query)
     } catch {
       return IpnFailChecksum
     }

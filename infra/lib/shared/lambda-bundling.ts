@@ -1,6 +1,10 @@
 import * as path from 'path'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 
+function repoPath(...segments: string[]): string {
+  return path.join(process.cwd(), ...segments)
+}
+
 const sharedExternalModules = [
   '@nestjs/microservices',
   '@nestjs/microservices/microservices-module',
@@ -24,7 +28,7 @@ export function createNodejsBundling(
     minify: false,
     sourceMap: true,
     target: 'node24',
-    tsconfig: path.join(__dirname, '..', '..', '..', 'tsconfig.json'),
+    tsconfig: repoPath('tsconfig.json'),
     ...(options.nodeModules ? { nodeModules: options.nodeModules } : {}),
     ...(options.forceDockerBundling ? { forceDockerBundling: true } : {}),
     commandHooks: {
@@ -33,6 +37,10 @@ export function createNodejsBundling(
       afterBundling: options.afterBundling ?? (() => []),
     },
   }
+}
+
+export function sourceEntryPath(...segments: string[]): string {
+  return repoPath('src', ...segments)
 }
 
 export function removeGeneratedSourceArtifacts(): string[] {

@@ -1,10 +1,12 @@
-import 'dotenv/config'
+import * as dotenv from 'dotenv'
 import {
   AdminAddUserToGroupCommand,
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
   CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider'
+
+dotenv.config({ path: process.env.RUNTIME_ENV_FILE ?? '.env.dev' })
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
@@ -21,11 +23,6 @@ async function main(): Promise<void> {
 
   const client = new CognitoIdentityProviderClient({
     region: process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'ap-southeast-1',
-    ...(process.env.COGNITO_IDP_ENDPOINT ? { endpoint: process.env.COGNITO_IDP_ENDPOINT } : {}),
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
-    },
   })
 
   await client.send(

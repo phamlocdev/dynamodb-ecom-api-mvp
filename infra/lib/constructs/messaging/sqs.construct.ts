@@ -1,7 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
-import { getLocalStackInfraEnv } from '../../config/env'
+import { getAwsInfraEnv } from '../../config/env'
 
 export interface SqsConstructProps {
   visibilityTimeout?: cdk.Duration
@@ -14,7 +14,7 @@ export class SqsConstruct extends Construct {
   constructor(scope: Construct, id: string, props: SqsConstructProps = {}) {
     super(scope, id)
 
-    const infraEnv = getLocalStackInfraEnv()
+    const infraEnv = getAwsInfraEnv()
     const visibilityTimeout = props.visibilityTimeout ?? cdk.Duration.seconds(60)
 
     this.placeOrderDlq = new sqs.Queue(this, 'PlaceOrderDlq', {
@@ -23,6 +23,7 @@ export class SqsConstruct extends Construct {
       contentBasedDeduplication: false,
       retentionPeriod: cdk.Duration.days(14),
       visibilityTimeout,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
     })
 
     this.placeOrderQueue = new sqs.Queue(this, 'PlaceOrderQueue', {
@@ -31,6 +32,7 @@ export class SqsConstruct extends Construct {
       contentBasedDeduplication: false,
       receiveMessageWaitTime: cdk.Duration.seconds(20),
       visibilityTimeout,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       deadLetterQueue: {
         queue: this.placeOrderDlq,
         maxReceiveCount: 3,

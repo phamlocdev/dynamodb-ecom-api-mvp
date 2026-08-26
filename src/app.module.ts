@@ -16,6 +16,7 @@ import { validateRuntimeEnv } from './config/env.validation'
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: process.env.RUNTIME_ENV_FILE ?? '.env.dev',
       validate: validateRuntimeEnv,
     }),
     AuthModule,

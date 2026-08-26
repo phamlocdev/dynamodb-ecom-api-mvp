@@ -17,7 +17,7 @@ export class S3Construct extends Construct {
       bucketName: props.bucketName,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       publicReadAccess: false,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       cors: [
         {
           allowedOrigins: props.clientOrigins,

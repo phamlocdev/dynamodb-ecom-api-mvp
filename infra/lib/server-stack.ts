@@ -1,32 +1,48 @@
 import * as cdk from 'aws-cdk-lib'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import { Construct } from 'constructs'
-import { CognitoConstruct } from '../constructs/auth/cognito.construct'
-import { HttpApiConstruct } from '../constructs/api/http-api.construct'
-import { LambdaApiConstruct } from '../constructs/api/lambda-api.construct'
-import { DynamoDbConstruct } from '../constructs/data/dynamodb.construct'
-import { OrdersWorkersConstruct } from '../constructs/messaging/orders-workers.construct'
-import { SqsConstruct } from '../constructs/messaging/sqs.construct'
-import { SesConstruct } from '../constructs/notification/ses.construct'
-import { S3Construct } from '../constructs/storage/s3.construct'
-import { ImageProcessorConstruct } from '../constructs/storage/image-processor.construct'
-import { getLocalStackInfraEnv } from '../config/env'
+import { getAwsInfraEnv } from './config/env'
+import { HttpApiConstruct } from './constructs/api/http-api.construct'
+import { LambdaApiConstruct } from './constructs/api/lambda-api.construct'
+import { CognitoConstruct } from './constructs/auth/cognito.construct'
+import { DynamoDbConstruct } from './constructs/data/dynamodb.construct'
+import { OrdersWorkersConstruct } from './constructs/messaging/orders-workers.construct'
+import { SqsConstruct } from './constructs/messaging/sqs.construct'
+import { SesConstruct } from './constructs/notification/ses.construct'
+import { ImageProcessorConstruct } from './constructs/storage/image-processor.construct'
+import { S3Construct } from './constructs/storage/s3.construct'
 
-export class ServerLocalStack extends cdk.Stack {
+export class ServerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props)
 
-    const env = getLocalStackInfraEnv()
+    const env = getAwsInfraEnv()
 
     const data = new DynamoDbConstruct(this, 'Data')
+
     const messaging = new SqsConstruct(this, 'Messaging', {
       visibilityTimeout: cdk.Duration.seconds(90),
     })
-    const storage = new S3Construct(this, 'Storage', {
-      bucketName: env.mediaBucketName,
-      clientOrigins: env.clientOrigins,
+
+    const vnpaySecret = new secretsmanager.Secret(this, 'VnpaySecret', {
+      secretName: env.vnpaySecretName,
+      description: 'VNPay credentials for ecommerce dev',
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ tmnCode: 'replace-me' }),
+        generateStringKey: 'secureSecret',
+        excludePunctuation: true,
+      },
     })
-    new ImageProcessorConstruct(this, 'ImageProcessor', {
-      mediaBucket: storage.mediaBucket,
+
+    const googleClientSecret = new secretsmanager.Secret(this, 'GoogleClientSecret', {
+      secretName: env.googleClientSecretName,
+      description: 'Google OAuth client secret for ecommerce dev Cognito federation',
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      generateSecretString: {
+        passwordLength: 40,
+        excludePunctuation: true,
+      },
     })
 
     const auth = new CognitoConstruct(this, 'Auth', {
@@ -34,7 +50,16 @@ export class ServerLocalStack extends cdk.Stack {
       logoutUrls: env.logoutUrls,
       hostedUiDomainPrefix: env.hostedUiDomainPrefix,
       googleClientId: env.googleClientId,
-      googleClientSecret: env.googleClientSecret,
+      googleClientSecret,
+    })
+
+    const storage = new S3Construct(this, 'Storage', {
+      bucketName: env.mediaBucketName,
+      clientOrigins: env.clientOrigins,
+    })
+
+    new ImageProcessorConstruct(this, 'ImageProcessor', {
+      mediaBucket: storage.mediaBucket,
     })
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
@@ -48,6 +73,7 @@ export class ServerLocalStack extends cdk.Stack {
       userProfilesTable: data.userProfilesTable,
       mediaBucket: storage.mediaBucket,
       placeOrderQueue: messaging.placeOrderQueue,
+      vnpaySecret,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -60,6 +86,7 @@ export class ServerLocalStack extends cdk.Stack {
       orderItemsTable: data.orderItemsTable,
       inventoryTable: data.inventoryTable,
       placeOrderQueue: messaging.placeOrderQueue,
+      vnpaySecret,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -73,12 +100,16 @@ export class ServerLocalStack extends cdk.Stack {
 
     new SesConstruct(this, 'Notification')
 
-    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
-      value: api.api.apiEndpoint,
+    new cdk.CfnOutput(this, 'ProductsTableName', { value: data.productsTable.tableName })
+
+    new cdk.CfnOutput(this, 'OrdersTableName', { value: data.ordersTable.tableName })
+
+    new cdk.CfnOutput(this, 'VnpaySecretName', {
+      value: env.vnpaySecretName,
     })
 
-    new cdk.CfnOutput(this, 'LocalStackApiGatewayUrl', {
-      value: api.api.url ?? api.api.apiEndpoint,
+    new cdk.CfnOutput(this, 'GoogleClientSecretName', {
+      value: env.googleClientSecretName,
     })
 
     new cdk.CfnOutput(this, 'CognitoUserPoolId', {
@@ -93,12 +124,12 @@ export class ServerLocalStack extends cdk.Stack {
       value: `https://cognito-idp.${this.region}.amazonaws.com/${auth.userPool.userPoolId}`,
     })
 
-    new cdk.CfnOutput(this, 'LocalStackCognitoIssuer', {
-      value: api.jwtIssuer,
-    })
-
     new cdk.CfnOutput(this, 'HostedUiDomain', {
       value: auth.userPoolDomain.baseUrl(),
+    })
+
+    new cdk.CfnOutput(this, 'ApiGatewayUrl', {
+      value: api.api.apiEndpoint,
     })
 
     new cdk.CfnOutput(this, 'PlaceOrderQueueUrl', {

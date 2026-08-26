@@ -11,7 +11,7 @@ const AVATAR_SIZE = 512
 const AVATAR_WEBP_QUALITY = 82
 
 const settings = getS3Settings()
-const s3Client = createS3Client(settings.internalEndpoint, settings)
+const s3Client = createS3Client(settings)
 
 export const handler: S3Handler = async (event: S3Event): Promise<void> => {
   await Promise.all(event.Records.map((record) => processRecord(record, s3Client)))

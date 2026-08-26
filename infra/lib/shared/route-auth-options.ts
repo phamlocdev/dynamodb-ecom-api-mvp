@@ -1,16 +1,10 @@
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2'
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers'
-import { getLocalStackInfraEnv } from '../config/env'
-
-export function localRouteAuthOptions(
+export function routeAuthOptions(
   authorizer?: authorizers.HttpJwtAuthorizer,
 ): Pick<apigatewayv2.AddRoutesOptions, 'authorizer'> {
-  if (!getLocalStackInfraEnv().enableLocalStackApiGatewayAuthorizer) {
-    return {}
-  }
-
   if (!authorizer) {
-    throw new Error('JWT authorizer is enabled but was not created.')
+    throw new Error('JWT authorizer was not created.')
   }
 
   return {

@@ -1,9 +1,10 @@
+import * as cdk from 'aws-cdk-lib'
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2'
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers'
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import { Construct } from 'constructs'
-import { getLocalStackInfraEnv } from '../../config/env'
+import { getAwsInfraEnv } from '../../config/env'
 import { registerApiRoutes } from './api-routes'
 
 export interface HttpApiConstructProps {
@@ -20,9 +21,9 @@ export class HttpApiConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: HttpApiConstructProps) {
     super(scope, id)
-    const infraEnv = getLocalStackInfraEnv()
+    const infraEnv = getAwsInfraEnv()
 
-    this.jwtIssuer = `${infraEnv.localStackCognitoBaseUrl}/${props.userPoolId}`
+    this.jwtIssuer = `https://cognito-idp.${cdk.Stack.of(this).region}.amazonaws.com/${props.userPoolId}`
 
     this.api = new apigatewayv2.HttpApi(this, 'NestHttpApi', {
       apiName: 'nestjs-ecommerce-local',
@@ -49,12 +50,10 @@ export class HttpApiConstruct extends Construct {
       },
     )
 
-    this.authorizer = infraEnv.enableLocalStackApiGatewayAuthorizer
-      ? new authorizers.HttpJwtAuthorizer('AdminAuthorizer', this.jwtIssuer, {
-          jwtAudience: [props.userPoolClientId],
-          identitySource: ['$request.header.Authorization'],
-        })
-      : undefined
+    this.authorizer = new authorizers.HttpJwtAuthorizer('AdminAuthorizer', this.jwtIssuer, {
+      jwtAudience: [props.userPoolClientId],
+      identitySource: ['$request.header.Authorization'],
+    })
 
     registerApiRoutes(this.api, integration, this.authorizer)
   }

@@ -1,6 +1,8 @@
-import 'dotenv/config'
+import * as dotenv from 'dotenv'
 import * as fs from 'fs'
 import * as path from 'path'
+
+dotenv.config({ path: process.env.RUNTIME_ENV_FILE ?? '.env.dev' })
 import {
   AdminCreateUserCommand,
   AdminSetUserPasswordCommand,
@@ -43,12 +45,12 @@ interface OrderRecord {
 }
 
 const serverRoot = path.resolve(__dirname, '..', '..')
-const outputsPath = path.join(serverRoot, 'localstack-outputs.json')
+const outputsPath = path.join(serverRoot, 'aws-outputs.json')
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const outputs = readOutputs(outputsPath)
-  const apiBaseUrl = normalizeBaseUrl(requireOutput(outputs, 'LocalStackApiGatewayUrl'))
+  const apiBaseUrl = normalizeBaseUrl(requireOutput(outputs, 'ApiGatewayUrl'))
   const userPoolId = requireOutput(outputs, 'CognitoUserPoolId')
   const clientId = requireOutput(outputs, 'CognitoClientId')
   const productId = args.productId ?? (await findFirstActiveProductId(apiBaseUrl))
@@ -286,7 +288,9 @@ async function apiRequest<T = unknown>(
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`${options.method} ${url} failed: ${response.status} ${response.statusText} ${body}`)
+    throw new Error(
+      `${options.method} ${url} failed: ${response.status} ${response.statusText} ${body}`,
+    )
   }
 
   return (await response.json()) as T
@@ -363,10 +367,12 @@ function readOutputs(filePath: string): StackOutputs {
 
   const content = fs.readFileSync(filePath, 'utf8')
   const parsed = JSON.parse(content) as OutputFileShape
-  const stackOutputs = parsed.ServerLocalStack
+  const stackOutputs = parsed.ServerDevStack
 
   if (!stackOutputs) {
-    throw new Error(`Could not find ServerLocalStack outputs in ${path.relative(serverRoot, filePath)}.`)
+    throw new Error(
+      `Could not find ServerDevStack outputs in ${path.relative(serverRoot, filePath)}.`,
+    )
   }
 
   return stackOutputs
@@ -384,11 +390,6 @@ function requireOutput(outputs: StackOutputs, key: string): string {
 function createCognitoClient(): CognitoIdentityProviderClient {
   return new CognitoIdentityProviderClient({
     region: process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'ap-southeast-1',
-    ...(process.env.COGNITO_IDP_ENDPOINT ? { endpoint: process.env.COGNITO_IDP_ENDPOINT } : {}),
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test',
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
-    },
   })
 }
 

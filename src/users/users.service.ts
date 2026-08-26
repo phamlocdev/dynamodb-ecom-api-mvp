@@ -35,17 +35,8 @@ export class UsersService {
       configService.get<string>('AWS_REGION') ??
       configService.get<string>('AWS_DEFAULT_REGION') ??
       'ap-southeast-1'
-    const endpoint = configService.get<string>('COGNITO_IDP_ENDPOINT')
-    const accessKeyId = configService.get<string>('AWS_ACCESS_KEY_ID') ?? 'test'
-    const secretAccessKey = configService.get<string>('AWS_SECRET_ACCESS_KEY') ?? 'test'
-
     this.cognitoClient = new CognitoIdentityProviderClient({
       region,
-      ...(endpoint ? { endpoint } : {}),
-      credentials: {
-        accessKeyId,
-        secretAccessKey,
-      },
     })
   }
 

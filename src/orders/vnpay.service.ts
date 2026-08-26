@@ -14,6 +14,7 @@ import {
   dateFormat,
   getDateInGMT7,
 } from 'vnpay'
+import { VnpaySecretsService } from './vnpay-secrets.service'
 
 export interface BuildOrderPaymentUrlInput {
   amount: number
@@ -42,17 +43,22 @@ export interface RefundOrderPaymentInput extends QueryOrderPaymentInput {
 @Injectable()
 export class VnpayService {
   private readonly logger = new Logger(VnpayService.name)
-  private readonly gatewayClient: VNPay
   private readonly returnUrl: string
   private readonly frontendPaymentReturnUrl: string
   private readonly locale: VnpLocale
   private readonly orderType: ProductCode
   private readonly apiIpAddress: string
+  private readonly paymentEndpoint: string
+  private readonly gatewayHost: string
+  private gatewayClientPromise?: Promise<VNPay>
 
-  constructor(@Inject(ConfigService) configService: ConfigService) {
+  constructor(
+    @Inject(ConfigService) configService: ConfigService,
+    @Inject(VnpaySecretsService) private readonly vnpaySecretsService: VnpaySecretsService,
+  ) {
     const paymentUrl = new URL(configService.getOrThrow<string>('VNPAY_PAYMENT_URL'))
-    const paymentEndpoint = paymentUrl.pathname.replace(/^\/+/, '')
-    const gatewayHost = paymentUrl.origin
+    this.paymentEndpoint = paymentUrl.pathname.replace(/^\/+/, '')
+    this.gatewayHost = paymentUrl.origin
 
     this.returnUrl = configService.getOrThrow<string>('VNPAY_RETURN_URL')
     this.frontendPaymentReturnUrl = resolveFrontendPaymentReturnUrl(
@@ -61,21 +67,12 @@ export class VnpayService {
     this.locale = toVnpLocale(configService.getOrThrow<'vn' | 'en'>('VNPAY_LOCALE'))
     this.orderType = configService.getOrThrow<ProductCode>('VNPAY_ORDER_TYPE') as ProductCode
     this.apiIpAddress = configService.getOrThrow<string>('VNPAY_API_IP_ADDR')
-
-    this.gatewayClient = new VNPay({
-      tmnCode: configService.getOrThrow<string>('VNPAY_TMN_CODE'),
-      secureSecret: configService.getOrThrow<string>('VNPAY_SECURE_SECRET'),
-      vnpayHost: gatewayHost,
-      queryDrAndRefundHost: gatewayHost,
-      paymentEndpoint,
-      testMode: gatewayHost.includes('sandbox'),
-      vnp_Locale: this.locale,
-      vnp_OrderType: this.orderType,
-    })
   }
 
-  buildOrderPaymentUrl(input: BuildOrderPaymentUrlInput): string {
-    return this.gatewayClient.buildPaymentUrl({
+  async buildOrderPaymentUrl(input: BuildOrderPaymentUrlInput): Promise<string> {
+    const gatewayClient = await this.getGatewayClient()
+
+    return gatewayClient.buildPaymentUrl({
       vnp_Amount: input.amount,
       vnp_CreateDate: toVnpayDateNumber(input.createDate),
       vnp_ExpireDate: toVnpayDateNumber(input.expireDate),
@@ -88,16 +85,20 @@ export class VnpayService {
     })
   }
 
-  verifyReturnQuery(query: Record<string, string>): VerifyReturnUrl {
-    return this.gatewayClient.verifyReturnUrl(query as ReturnQueryFromVNPay)
+  async verifyReturnQuery(query: Record<string, string>): Promise<VerifyReturnUrl> {
+    const gatewayClient = await this.getGatewayClient()
+    return gatewayClient.verifyReturnUrl(query as ReturnQueryFromVNPay)
   }
 
-  verifyIpnQuery(query: Record<string, string>): VerifyIpnCall {
-    return this.gatewayClient.verifyIpnCall(query as ReturnQueryFromVNPay)
+  async verifyIpnQuery(query: Record<string, string>): Promise<VerifyIpnCall> {
+    const gatewayClient = await this.getGatewayClient()
+    return gatewayClient.verifyIpnCall(query as ReturnQueryFromVNPay)
   }
 
-  queryOrderPayment(input: QueryOrderPaymentInput): Promise<QueryDrResponse> {
-    return this.gatewayClient.queryDr({
+  async queryOrderPayment(input: QueryOrderPaymentInput): Promise<QueryDrResponse> {
+    const gatewayClient = await this.getGatewayClient()
+
+    return gatewayClient.queryDr({
       vnp_RequestId: buildGatewayRequestId(),
       vnp_CreateDate: toVnpayDateNumber(input.createDate),
       vnp_IpAddr: input.clientIp,
@@ -108,8 +109,10 @@ export class VnpayService {
     })
   }
 
-  refundOrderPayment(input: RefundOrderPaymentInput): Promise<RefundResponse> {
-    return this.gatewayClient.refund({
+  async refundOrderPayment(input: RefundOrderPaymentInput): Promise<RefundResponse> {
+    const gatewayClient = await this.getGatewayClient()
+
+    return gatewayClient.refund({
       vnp_Amount: input.amount,
       vnp_CreateBy: input.createBy,
       vnp_CreateDate: toVnpayDateNumber(new Date()),
@@ -129,7 +132,9 @@ export class VnpayService {
   }
 
   logIpnResponse(orderId: string, response: IpnResponse): void {
-    this.logger.log(`VNPay IPN response for order ${orderId}: ${response.RspCode} ${response.Message}`)
+    this.logger.log(
+      `VNPay IPN response for order ${orderId}: ${response.RspCode} ${response.Message}`,
+    )
   }
 
   buildFrontendPaymentReturnUrl(
@@ -146,6 +151,26 @@ export class VnpayService {
     redirectUrl.searchParams.set('returnMessage', options.message)
 
     return redirectUrl.toString()
+  }
+
+  private getGatewayClient(): Promise<VNPay> {
+    this.gatewayClientPromise ??= this.createGatewayClient()
+    return this.gatewayClientPromise
+  }
+
+  private async createGatewayClient(): Promise<VNPay> {
+    const secret = await this.vnpaySecretsService.getSecret()
+
+    return new VNPay({
+      tmnCode: secret.tmnCode,
+      secureSecret: secret.secureSecret,
+      vnpayHost: this.gatewayHost,
+      queryDrAndRefundHost: this.gatewayHost,
+      paymentEndpoint: this.paymentEndpoint,
+      testMode: this.gatewayHost.includes('sandbox'),
+      vnp_Locale: this.locale,
+      vnp_OrderType: this.orderType,
+    })
   }
 }
 
