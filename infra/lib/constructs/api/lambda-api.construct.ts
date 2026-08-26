@@ -4,7 +4,6 @@ import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
@@ -25,7 +24,6 @@ export interface LambdaApiConstructProps {
   userProfilesTable: dynamodb.ITable
   mediaBucket: s3.IBucket
   placeOrderQueue: sqs.IQueue
-  vnpaySecret: secretsmanager.ISecret
   userPoolId: string
   userPoolClientId: string
 }
@@ -63,7 +61,8 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
-        VNPAY_SECRET_NAME: props.vnpaySecret.secretName,
+        VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
+        VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
         VNPAY_PAYMENT_URL: infraEnv.vnpayPaymentUrl,
         VNPAY_RETURN_URL: infraEnv.vnpayReturnUrl,
         VNPAY_IPN_URL: infraEnv.vnpayIpnUrl,
@@ -82,7 +81,6 @@ export class LambdaApiConstruct extends Construct {
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.userProfilesTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
-    props.vnpaySecret.grantRead(this.apiHandler)
     this.apiHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],

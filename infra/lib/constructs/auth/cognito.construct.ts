@@ -2,7 +2,6 @@ import * as cdk from 'aws-cdk-lib'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
 import { createNodejsBundling, sourceEntryPath } from '../../shared/lambda-bundling'
@@ -14,7 +13,7 @@ export interface CognitoConstructProps {
   logoutUrls: string[]
   hostedUiDomainPrefix: string
   googleClientId?: string
-  googleClientSecret?: secretsmanager.ISecret
+  googleClientSecret?: string
 }
 
 export class CognitoConstruct extends Construct {
@@ -61,7 +60,7 @@ export class CognitoConstruct extends Construct {
         ? new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleProvider', {
             userPool: this.userPool,
             clientId: props.googleClientId,
-            clientSecretValue: props.googleClientSecret.secretValue,
+            clientSecretValue: cdk.SecretValue.unsafePlainText(props.googleClientSecret),
             scopes: ['openid', 'email', 'profile'],
           })
         : undefined

@@ -26,6 +26,7 @@ export class ImageProcessorConstruct extends Construct {
         nodeModules: ['sharp'],
         forceDockerBundling: true,
         preCompilation: false,
+        afterBundling: (_inputDir, outputDir) => [`rm -rf ${outputDir}/node_modules/.bin`],
       }),
       environment: {
         MEDIA_BUCKET_NAME: props.mediaBucket.bucketName,

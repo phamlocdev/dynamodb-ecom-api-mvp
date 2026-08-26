@@ -1,5 +1,4 @@
 import * as cdk from 'aws-cdk-lib'
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from './config/env'
 import { HttpApiConstruct } from './constructs/api/http-api.construct'
@@ -19,30 +18,8 @@ export class ServerStack extends cdk.Stack {
     const env = getAwsInfraEnv()
 
     const data = new DynamoDbConstruct(this, 'Data')
-
     const messaging = new SqsConstruct(this, 'Messaging', {
       visibilityTimeout: cdk.Duration.seconds(90),
-    })
-
-    const vnpaySecret = new secretsmanager.Secret(this, 'VnpaySecret', {
-      secretName: env.vnpaySecretName,
-      description: 'VNPay credentials for ecommerce dev',
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({ tmnCode: 'replace-me' }),
-        generateStringKey: 'secureSecret',
-        excludePunctuation: true,
-      },
-    })
-
-    const googleClientSecret = new secretsmanager.Secret(this, 'GoogleClientSecret', {
-      secretName: env.googleClientSecretName,
-      description: 'Google OAuth client secret for ecommerce dev Cognito federation',
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-      generateSecretString: {
-        passwordLength: 40,
-        excludePunctuation: true,
-      },
     })
 
     const auth = new CognitoConstruct(this, 'Auth', {
@@ -50,7 +27,7 @@ export class ServerStack extends cdk.Stack {
       logoutUrls: env.logoutUrls,
       hostedUiDomainPrefix: env.hostedUiDomainPrefix,
       googleClientId: env.googleClientId,
-      googleClientSecret,
+      googleClientSecret: env.googleClientSecret,
     })
 
     const storage = new S3Construct(this, 'Storage', {
@@ -73,7 +50,6 @@ export class ServerStack extends cdk.Stack {
       userProfilesTable: data.userProfilesTable,
       mediaBucket: storage.mediaBucket,
       placeOrderQueue: messaging.placeOrderQueue,
-      vnpaySecret,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -86,7 +62,6 @@ export class ServerStack extends cdk.Stack {
       orderItemsTable: data.orderItemsTable,
       inventoryTable: data.inventoryTable,
       placeOrderQueue: messaging.placeOrderQueue,
-      vnpaySecret,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
@@ -103,14 +78,6 @@ export class ServerStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ProductsTableName', { value: data.productsTable.tableName })
 
     new cdk.CfnOutput(this, 'OrdersTableName', { value: data.ordersTable.tableName })
-
-    new cdk.CfnOutput(this, 'VnpaySecretName', {
-      value: env.vnpaySecretName,
-    })
-
-    new cdk.CfnOutput(this, 'GoogleClientSecretName', {
-      value: env.googleClientSecretName,
-    })
 
     new cdk.CfnOutput(this, 'CognitoUserPoolId', {
       value: auth.userPool.userPoolId,
