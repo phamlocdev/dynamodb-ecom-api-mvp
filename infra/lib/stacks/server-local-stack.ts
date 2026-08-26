@@ -8,6 +8,7 @@ import { OrdersWorkersConstruct } from '../constructs/messaging/orders-workers.c
 import { SqsConstruct } from '../constructs/messaging/sqs.construct'
 import { SesConstruct } from '../constructs/notification/ses.construct'
 import { S3Construct } from '../constructs/storage/s3.construct'
+import { ImageProcessorConstruct } from '../constructs/storage/image-processor.construct'
 import { getLocalStackInfraEnv } from '../config/env'
 
 export class ServerLocalStack extends cdk.Stack {
@@ -23,6 +24,9 @@ export class ServerLocalStack extends cdk.Stack {
     const storage = new S3Construct(this, 'Storage', {
       bucketName: env.mediaBucketName,
       clientOrigins: env.clientOrigins,
+    })
+    new ImageProcessorConstruct(this, 'ImageProcessor', {
+      mediaBucket: storage.mediaBucket,
     })
 
     const auth = new CognitoConstruct(this, 'Auth', {

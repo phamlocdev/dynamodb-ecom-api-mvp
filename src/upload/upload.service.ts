@@ -226,11 +226,11 @@ export class UploadService {
 }
 
 function buildProductImageKey(groupId: string, file: PresignUploadFileDto): string {
-  return `products/${groupId}/${randomUUID()}-${sanitizeFileName(file.fileName)}`
+  return `products/${groupId}/${randomUUID()}-${toWebpFileName(file.fileName)}`
 }
 
 function buildAvatarKey(userId: string, file: PresignUploadFileDto): string {
-  return `users/${userId}/avatar/${randomUUID()}-${sanitizeFileName(file.fileName)}`
+  return `users/${userId}/avatar/${randomUUID()}-${toWebpFileName(file.fileName)}`
 }
 
 function sanitizeFileName(fileName: string): string {
@@ -243,6 +243,14 @@ function sanitizeFileName(fileName: string): string {
     .slice(0, 100)
 
   return sanitized || 'image'
+}
+
+function toWebpFileName(fileName: string): string {
+  const sanitized = sanitizeFileName(fileName)
+  const extensionIndex = sanitized.lastIndexOf('.')
+  const baseName = extensionIndex > 0 ? sanitized.slice(0, extensionIndex) : sanitized
+
+  return `${baseName || 'image'}.webp`
 }
 
 function readPositiveInteger(value: number | string | undefined, fallback: number): number {
