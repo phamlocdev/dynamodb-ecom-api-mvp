@@ -11,6 +11,8 @@ import { Product } from '../products/product.types'
 import { OrderStatus } from '../orders/order-status.enum'
 import { OrdersService } from '../orders/orders.service'
 import { OrderItem, PlaceOrderMessage } from '../orders/orders.types'
+import { commerceMapper } from '../dynamodb/commerce-table.mappers'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { ConfigService } from '@nestjs/config'
 
@@ -31,6 +33,8 @@ export class OrdersWorkerService {
     private readonly ordersService: OrdersService,
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
     @Inject(ConfigService)
     configService: ConfigService,
   ) {
@@ -162,6 +166,7 @@ export class OrdersWorkerService {
             Item: orderItem,
           }),
         )
+        await this.mirrorOrderItem(orderItem)
       }
 
       const totalAmount = orderItems.reduce((total, item) => total + item.lineTotal, 0)
@@ -183,6 +188,16 @@ export class OrdersWorkerService {
       if (!(error instanceof ConflictException)) {
         throw error
       }
+    }
+  }
+
+  private async mirrorOrderItem(orderItem: OrderItem): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toOrderItemRecord(orderItem))
+    } catch {
+      this.logger.warn(
+        `Failed to mirror order item ${orderItem.lineId} for order ${orderItem.orderId} into commerce table.`,
+      )
     }
   }
 }

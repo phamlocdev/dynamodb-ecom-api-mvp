@@ -16,6 +16,7 @@ import {
 } from '../../shared/lambda-bundling'
 
 export interface OrdersWorkersConstructProps {
+  ecommerceTable: dynamodb.ITable
   productsTable: dynamodb.ITable
   cartsTable: dynamodb.ITable
   cartItemsTable: dynamodb.ITable
@@ -36,6 +37,7 @@ export class OrdersWorkersConstruct extends Construct {
     const infraEnv = getAwsInfraEnv()
 
     const sharedEnvironment = {
+      ECOMMERCE_TABLE: props.ecommerceTable.tableName,
       PRODUCTS_TABLE: props.productsTable.tableName,
       CARTS_TABLE: props.cartsTable.tableName,
       CART_ITEMS_TABLE: props.cartItemsTable.tableName,
@@ -96,6 +98,7 @@ export class OrdersWorkersConstruct extends Construct {
 
     const workerFunctions = [this.placeOrderWorker, this.reservationExpiryPoller]
     const tables = [
+      props.ecommerceTable,
       props.productsTable,
       props.cartsTable,
       props.cartItemsTable,
@@ -112,7 +115,11 @@ export class OrdersWorkersConstruct extends Construct {
       worker.addToRolePolicy(
         new iam.PolicyStatement({
           actions: ['dynamodb:TransactWriteItems'],
-          resources: [props.ordersTable.tableArn, props.inventoryTable.tableArn],
+          resources: [
+            props.ecommerceTable.tableArn,
+            props.ordersTable.tableArn,
+            props.inventoryTable.tableArn,
+          ],
         }),
       )
     })

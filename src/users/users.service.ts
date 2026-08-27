@@ -9,6 +9,10 @@ import {
   type UserType,
 } from '@aws-sdk/client-cognito-identity-provider'
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
+import { commerceMapper, fromUserProfileRecord } from '../dynamodb/commerce-table.mappers'
+import { commerceKeys } from '../dynamodb/commerce-table.keys'
+import { UserProfileRecord } from '../dynamodb/commerce-table.types'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { AuthenticatedUser } from '../auth/auth.types'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { UploadService } from '../upload/upload.service'
@@ -25,6 +29,8 @@ export class UsersService {
     @Inject(ConfigService) configService: ConfigService,
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
     @Inject(UploadService)
     private readonly uploadService: UploadService,
   ) {
@@ -145,6 +151,7 @@ export class UsersService {
         Item: nextProfile,
       }),
     )
+    await this.upsertProfileMirror(nextProfile)
 
     if (previousAvatarKey && previousAvatarKey !== nextAvatarKey) {
       await this.uploadService.deleteObjectsBestEffort([previousAvatarKey])
@@ -154,6 +161,13 @@ export class UsersService {
   }
 
   private async findStoredProfile(userId: string): Promise<UserProfile | null> {
+    const commerceProfile = await this.commerceTableService.get<UserProfileRecord>(
+      commerceKeys.userProfile(userId),
+    )
+    if (commerceProfile) {
+      return fromUserProfileRecord(commerceProfile)
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.profileTableName,
@@ -162,6 +176,14 @@ export class UsersService {
     )
 
     return (response.Item as UserProfile | undefined) ?? null
+  }
+
+  private async upsertProfileMirror(profile: UserProfile): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toUserProfileRecord(profile))
+    } catch {
+      // Keep legacy write as the primary path during cutover.
+    }
   }
 
   private async withAvatarReadUrl(profile: UserProfile): Promise<UserProfile> {

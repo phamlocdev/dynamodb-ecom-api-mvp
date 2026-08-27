@@ -25,6 +25,7 @@ export type StackOutputs = {
   CognitoClientId?: string
   CognitoIssuer?: string
   CognitoUserPoolId?: string
+  EcommerceTableName?: string
   HostedUiDomain?: string
   MediaBucketName?: string
   OrdersTableName?: string
@@ -219,7 +220,7 @@ export function groupBy<TItem, TKey extends string | number>(
 }
 
 export function exitWithError(error: unknown): never {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error)
+  const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
   console.error(message)
   process.exit(1)
 }

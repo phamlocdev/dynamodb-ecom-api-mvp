@@ -4,6 +4,7 @@ import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
 
 export class DynamoDbConstruct extends Construct {
+  readonly ecommerceTable: dynamodb.Table
   readonly productsTable: dynamodb.Table
   readonly categoriesTable: dynamodb.Table
   readonly cartsTable: dynamodb.Table
@@ -16,6 +17,44 @@ export class DynamoDbConstruct extends Construct {
   constructor(scope: Construct, id: string) {
     super(scope, id)
     const infraEnv = getAwsInfraEnv()
+
+    this.ecommerceTable = new dynamodb.Table(this, 'EcommerceTable', {
+      tableName: infraEnv.ecommerceTableName,
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    })
+    this.ecommerceTable.addGlobalSecondaryIndex({
+      indexName: 'GSI1',
+      partitionKey: { name: 'GSI1PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI1SK', type: dynamodb.AttributeType.STRING },
+    })
+    this.ecommerceTable.addGlobalSecondaryIndex({
+      indexName: 'GSI2',
+      partitionKey: { name: 'GSI2PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI2SK', type: dynamodb.AttributeType.STRING },
+    })
+    this.ecommerceTable.addGlobalSecondaryIndex({
+      indexName: 'GSI3',
+      partitionKey: { name: 'GSI3PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI3SK', type: dynamodb.AttributeType.STRING },
+    })
+    this.ecommerceTable.addGlobalSecondaryIndex({
+      indexName: 'GSI4',
+      partitionKey: { name: 'GSI4PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI4SK', type: dynamodb.AttributeType.STRING },
+    })
+    this.ecommerceTable.addGlobalSecondaryIndex({
+      indexName: 'GSI5',
+      partitionKey: { name: 'GSI5PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI5SK', type: dynamodb.AttributeType.STRING },
+    })
+    this.ecommerceTable.addGlobalSecondaryIndex({
+      indexName: 'GSI6',
+      partitionKey: { name: 'GSI6PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'GSI6SK', type: dynamodb.AttributeType.STRING },
+    })
 
     this.productsTable = new dynamodb.Table(this, 'ProductsTable', {
       tableName: infraEnv.productsTableName,
@@ -104,6 +143,9 @@ export class DynamoDbConstruct extends Construct {
 
     new cdk.CfnOutput(this, 'OrdersEntityType', {
       value: infraEnv.ordersEntityType,
+    })
+    new cdk.CfnOutput(this, 'EcommerceTableName', {
+      value: infraEnv.ecommerceTableName,
     })
   }
 }

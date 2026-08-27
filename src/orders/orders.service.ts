@@ -20,6 +20,14 @@ import { AuthenticatedUser } from '../auth/auth.types'
 import { Role } from '../auth/roles.enum'
 import { CartsService } from '../carts/carts.service'
 import { CartStatus } from '../carts/cart-status.enum'
+import {
+  commerceMapper,
+  fromOrderItemRecord,
+  fromOrderRecord,
+} from '../dynamodb/commerce-table.mappers'
+import { commerceKeys } from '../dynamodb/commerce-table.keys'
+import { OrderItemRecord, OrderRecord } from '../dynamodb/commerce-table.types'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
@@ -70,6 +78,8 @@ export class OrdersService {
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
     @Inject(CartsService)
     private readonly cartsService: CartsService,
     @Inject(InventoryService)
@@ -127,6 +137,7 @@ export class OrdersService {
         ExpressionAttributeNames: { '#orderId': 'orderId' },
       }),
     )
+    await this.mirrorOrder(order)
 
     this.logger.log(
       `>>>>>> [START]: Processing order ${order.orderId} for cart ${order.cartId} and customer ${order.customerId}.`,
@@ -173,6 +184,7 @@ export class OrdersService {
             Item: orderItem,
           }),
         )
+        await this.upsertOrderItemMirror(orderItem)
       }
 
       const totalAmount = orderItems.reduce((total, item) => total + item.lineTotal, 0)
@@ -223,6 +235,25 @@ export class OrdersService {
     }
     const pagination = resolvePaginationState('orders', query, scope)
 
+    const commerceQueryInput = isAdminOrManager
+      ? buildStaffCommerceOrderQuery(query, pagination.startKey ?? undefined)
+      : buildCustomerCommerceOrderQuery(user.sub, pagination.startKey ?? undefined)
+
+    if (commerceQueryInput) {
+      const response = await this.commerceTableService.query({
+        Limit: pagination.limit,
+        ScanIndexForward: false,
+        ...commerceQueryInput,
+      })
+
+      return toPaginatedResponse(
+        'orders',
+        pagination,
+        (response.Items ?? []).map((item) => fromOrderRecord(item as OrderRecord)),
+        response.LastEvaluatedKey,
+      )
+    }
+
     const queryInput = isAdminOrManager
       ? buildStaffOrderQuery(query, pagination.startKey ?? undefined)
       : buildCustomerOrderQuery(user.sub, pagination.startKey ?? undefined)
@@ -245,18 +276,7 @@ export class OrdersService {
   }
 
   async findOne(user: AuthenticatedUser, orderId: string): Promise<OrderDetails> {
-    const response = await this.dynamoDbService.documentClient.send(
-      new GetCommand({
-        TableName: this.ordersTableName,
-        Key: { orderId },
-      }),
-    )
-
-    if (!response.Item) {
-      throw new NotFoundException(`Order ${orderId} was not found.`)
-    }
-
-    const order = response.Item as Order
+    const order = await this.getById(orderId)
     const isAdminOrManager = user.groups.includes(Role.ADMIN) || user.groups.includes(Role.MANAGER)
     if (!isAdminOrManager && order.customerId !== user.sub) {
       throw new ForbiddenException('You do not have access to this order.')
@@ -270,6 +290,17 @@ export class OrdersService {
   }
 
   async getById(orderId: string): Promise<Order> {
+    const commerceOrder = await this.commerceTableService.get<OrderRecord>(
+      commerceKeys.order(orderId),
+    )
+    if (commerceOrder) {
+      return fromOrderRecord(commerceOrder)
+    }
+
+    return this.getLegacyById(orderId)
+  }
+
+  private async getLegacyById(orderId: string): Promise<Order> {
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.ordersTableName,
@@ -528,6 +559,7 @@ export class OrdersService {
         },
       }),
     )
+    await this.syncOrderMirror(orderId)
   }
 
   async markReserved(orderId: string, totalAmount: number): Promise<void> {
@@ -557,6 +589,7 @@ export class OrdersService {
         },
       }),
     )
+    await this.syncOrderMirror(orderId)
   }
 
   async markPaymentSucceeded(
@@ -593,6 +626,7 @@ export class OrdersService {
         },
       }),
     )
+    await this.syncOrderMirror(orderId)
   }
 
   async markPaymentFailed(
@@ -625,6 +659,7 @@ export class OrdersService {
         },
       }),
     )
+    await this.syncOrderMirror(orderId)
   }
 
   async markExpiredPaymentRefunded(
@@ -659,6 +694,7 @@ export class OrdersService {
         },
       }),
     )
+    await this.syncOrderMirror(orderId)
   }
 
   async updateStatus(orderId: string, status: OrderStatus, failureReason?: string): Promise<void> {
@@ -687,9 +723,28 @@ export class OrdersService {
         ExpressionAttributeValues: values,
       }),
     )
+    await this.syncOrderMirror(orderId)
   }
 
   async findOrderItems(orderId: string): Promise<OrderItem[]> {
+    const commerceResponse = await this.commerceTableService.query({
+      KeyConditionExpression: '#pk = :pk AND begins_with(#sk, :itemPrefix)',
+      ExpressionAttributeNames: {
+        '#pk': 'PK',
+        '#sk': 'SK',
+      },
+      ExpressionAttributeValues: {
+        ':pk': `ORDER#${orderId}`,
+        ':itemPrefix': 'ITEM#',
+      },
+    })
+
+    if ((commerceResponse.Items ?? []).length > 0) {
+      return (commerceResponse.Items ?? []).map((item) =>
+        fromOrderItemRecord(item as OrderItemRecord),
+      )
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new QueryCommand({
         TableName: this.orderItemsTableName,
@@ -707,6 +762,28 @@ export class OrdersService {
     limit: number,
     exclusiveStartKey?: Record<string, unknown>,
   ): Promise<{ items: Order[]; lastEvaluatedKey?: Record<string, unknown> }> {
+    const commerceResponse = await this.commerceTableService.query({
+      IndexName: 'GSI5',
+      KeyConditionExpression: '#gsi5pk = :gsi5pk AND #gsi5sk <= :gsi5sk',
+      ExpressionAttributeNames: {
+        '#gsi5pk': 'GSI5PK',
+        '#gsi5sk': 'GSI5SK',
+      },
+      ExpressionAttributeValues: {
+        ':gsi5pk': `ORDER_PAYMENT_STATUS#${OrderStatus.RESERVED}`,
+        ':gsi5sk': `${String(nowEpochSeconds).padStart(12, '0')}#~`,
+      },
+      Limit: limit,
+      ExclusiveStartKey: exclusiveStartKey,
+    })
+
+    if ((commerceResponse.Items ?? []).length > 0 || exclusiveStartKey) {
+      return {
+        items: (commerceResponse.Items ?? []).map((item) => fromOrderRecord(item as OrderRecord)),
+        lastEvaluatedKey: commerceResponse.LastEvaluatedKey as Record<string, unknown> | undefined,
+      }
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new QueryCommand({
         TableName: this.ordersTableName,
@@ -773,6 +850,8 @@ export class OrdersService {
         ],
       }),
     )
+    await this.syncOrderMirror(orderId)
+    await this.syncInventoryMirrors(inventoryItems)
   }
 
   async expireReservationAndReleaseInventoryIfUnpaid(
@@ -828,6 +907,8 @@ export class OrdersService {
           ],
         }),
       )
+      await this.syncOrderMirror(order.orderId)
+      await this.syncInventoryMirrors(inventoryItems)
       return true
     } catch (error) {
       if (isConditionalCheckFailure(error) || isTransactionCanceled(error)) {
@@ -946,6 +1027,51 @@ export class OrdersService {
         error,
       )
       return IpnUnknownError
+    }
+  }
+
+  private async mirrorOrder(order: Order): Promise<void> {
+    try {
+      await this.commerceTableService.put(
+        commerceMapper.toOrderRecord(order),
+        'attribute_not_exists(#pk)',
+        { '#pk': 'PK' },
+      )
+    } catch {
+      this.logger.warn(`Failed to mirror order ${order.orderId} into commerce table.`)
+    }
+  }
+
+  private async upsertOrderMirror(order: Order): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toOrderRecord(order))
+    } catch {
+      this.logger.warn(`Failed to upsert order ${order.orderId} into commerce table.`)
+    }
+  }
+
+  private async upsertOrderItemMirror(orderItem: OrderItem): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toOrderItemRecord(orderItem))
+    } catch {
+      this.logger.warn(
+        `Failed to upsert order item ${orderItem.lineId} for order ${orderItem.orderId} into commerce table.`,
+      )
+    }
+  }
+
+  private async syncOrderMirror(orderId: string): Promise<void> {
+    try {
+      const order = await this.getLegacyById(orderId)
+      await this.upsertOrderMirror(order)
+    } catch {
+      this.logger.warn(`Failed to sync order ${orderId} into commerce table.`)
+    }
+  }
+
+  private async syncInventoryMirrors(items: ReservedInventoryItem[]): Promise<void> {
+    for (const item of items) {
+      await this.inventoryService.syncMirrorForProduct(item.productId)
     }
   }
 }
@@ -1081,6 +1207,50 @@ function buildCustomerOrderQuery(
     KeyConditionExpression: '#customerId = :customerId',
     ExpressionAttributeNames: { '#customerId': 'customerId' },
     ExpressionAttributeValues: { ':customerId': customerId },
+    ExclusiveStartKey: exclusiveStartKey,
+  }
+}
+
+function buildStaffCommerceOrderQuery(
+  query: ListOrdersQueryDto,
+  exclusiveStartKey?: Record<string, unknown>,
+): Omit<QueryCommand['input'], 'TableName'> | null {
+  if (query.customerEmail) {
+    return {
+      IndexName: 'GSI4',
+      KeyConditionExpression: '#gsi4pk = :gsi4pk',
+      ExpressionAttributeNames: { '#gsi4pk': 'GSI4PK' },
+      ExpressionAttributeValues: { ':gsi4pk': `CUSTOMER_EMAIL#${query.customerEmail}` },
+      ExclusiveStartKey: exclusiveStartKey,
+    }
+  }
+
+  if (query.customerId) {
+    return buildCustomerCommerceOrderQuery(query.customerId, exclusiveStartKey)
+  }
+
+  if (query.status) {
+    return {
+      IndexName: 'GSI3',
+      KeyConditionExpression: '#gsi3pk = :gsi3pk',
+      ExpressionAttributeNames: { '#gsi3pk': 'GSI3PK' },
+      ExpressionAttributeValues: { ':gsi3pk': `ORDER_STATUS#${query.status}` },
+      ExclusiveStartKey: exclusiveStartKey,
+    }
+  }
+
+  return null
+}
+
+function buildCustomerCommerceOrderQuery(
+  customerId: string,
+  exclusiveStartKey?: Record<string, unknown>,
+): Omit<QueryCommand['input'], 'TableName'> {
+  return {
+    IndexName: 'GSI2',
+    KeyConditionExpression: '#gsi2pk = :gsi2pk',
+    ExpressionAttributeNames: { '#gsi2pk': 'GSI2PK' },
+    ExpressionAttributeValues: { ':gsi2pk': `CUSTOMER#${customerId}` },
     ExclusiveStartKey: exclusiveStartKey,
   }
 }

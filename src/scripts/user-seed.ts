@@ -7,6 +7,7 @@ import {
   type AttributeType,
 } from '@aws-sdk/client-cognito-identity-provider'
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
+import { commerceMapper } from '../dynamodb/commerce-table.mappers'
 import { getResolvedCognitoUserPoolId, getScriptContext, nowIso } from './script-helpers'
 
 export type SeedUserAccount = {
@@ -43,7 +44,9 @@ export const defaultSeedUsers: SeedUserAccount[] = [
   },
 ]
 
-export async function ensureSeedUser(account: SeedUserAccount): Promise<{ sub: string; username: string }> {
+export async function ensureSeedUser(
+  account: SeedUserAccount,
+): Promise<{ sub: string; username: string }> {
   const { cognitoClient, documentClient, runtimeEnv } = getScriptContext()
   const userPoolId = getResolvedCognitoUserPoolId()
 
@@ -128,6 +131,19 @@ export async function ensureSeedUser(account: SeedUserAccount): Promise<{ sub: s
         createdAt: existingProfile?.createdAt ?? timestamp,
         updatedAt: timestamp,
       } satisfies StoredUserProfile,
+    }),
+  )
+  await documentClient.send(
+    new PutCommand({
+      TableName: runtimeEnv.ECOMMERCE_TABLE,
+      Item: commerceMapper.toUserProfileRecord({
+        userId: sub,
+        username: account.username,
+        email: account.email,
+        name: account.name,
+        createdAt: existingProfile?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      }),
     }),
   )
 

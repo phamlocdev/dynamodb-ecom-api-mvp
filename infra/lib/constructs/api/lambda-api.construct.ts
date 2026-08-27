@@ -14,6 +14,7 @@ import {
 } from '../../shared/lambda-bundling'
 
 export interface LambdaApiConstructProps {
+  ecommerceTable: dynamodb.ITable
   productsTable: dynamodb.ITable
   categoriesTable: dynamodb.ITable
   cartsTable: dynamodb.ITable
@@ -45,6 +46,7 @@ export class LambdaApiConstruct extends Construct {
         afterBundling: () => removeGeneratedSourceArtifacts(),
       }),
       environment: {
+        ECOMMERCE_TABLE: props.ecommerceTable.tableName,
         PRODUCTS_TABLE: props.productsTable.tableName,
         CATEGORIES_TABLE: props.categoriesTable.tableName,
         CARTS_TABLE: props.cartsTable.tableName,
@@ -72,6 +74,7 @@ export class LambdaApiConstruct extends Construct {
       },
     })
 
+    props.ecommerceTable.grantReadWriteData(this.apiHandler)
     props.productsTable.grantReadWriteData(this.apiHandler)
     props.categoriesTable.grantReadWriteData(this.apiHandler)
     props.cartsTable.grantReadWriteData(this.apiHandler)
@@ -91,7 +94,11 @@ export class LambdaApiConstruct extends Construct {
     this.apiHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['dynamodb:TransactWriteItems'],
-        resources: [props.ordersTable.tableArn, props.inventoryTable.tableArn],
+        resources: [
+          props.ecommerceTable.tableArn,
+          props.ordersTable.tableArn,
+          props.inventoryTable.tableArn,
+        ],
       }),
     )
 

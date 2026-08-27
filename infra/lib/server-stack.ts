@@ -40,6 +40,7 @@ export class ServerStack extends cdk.Stack {
     })
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
+      ecommerceTable: data.ecommerceTable,
       productsTable: data.productsTable,
       categoriesTable: data.categoriesTable,
       cartsTable: data.cartsTable,
@@ -55,6 +56,7 @@ export class ServerStack extends cdk.Stack {
     })
 
     new OrdersWorkersConstruct(this, 'OrdersWorkers', {
+      ecommerceTable: data.ecommerceTable,
       productsTable: data.productsTable,
       cartsTable: data.cartsTable,
       cartItemsTable: data.cartItemsTable,

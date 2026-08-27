@@ -11,10 +11,15 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 import { randomUUID } from 'crypto'
+import { commerceMapper, fromProductItem } from '../dynamodb/commerce-table.mappers'
+import { commerceKeys } from '../dynamodb/commerce-table.keys'
+import { ProductItem } from '../dynamodb/commerce-table.types'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { CreateProductDto } from './dto/create-product.dto'
 import { ListProductsQueryDto } from './dto/list-products-query.dto'
@@ -33,6 +38,8 @@ export class ProductsService {
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
     @Inject(UploadService)
     private readonly uploadService: UploadService,
     @Inject(ConfigService)
@@ -67,6 +74,7 @@ export class ProductsService {
           ExpressionAttributeNames: { '#productId': 'productId' },
         }),
       )
+      await this.mirrorProduct(product)
       return product
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
@@ -99,6 +107,17 @@ export class ProductsService {
     */
 
   async findAll(query: ListProductsQueryDto): Promise<PaginatedResponse<Product>> {
+    const commercePage = await this.findAllFromCommerceTable(query)
+    if (commercePage.items.length > 0 || query.cursor) {
+      return commercePage
+    }
+
+    return this.findAllFromLegacyTable(query)
+  }
+
+  private async findAllFromCommerceTable(
+    query: ListProductsQueryDto,
+  ): Promise<PaginatedResponse<Product>> {
     const filters = normalizeProductFilters(query)
     const cursorScope = toCursorScope(filters)
     const filterExpression = buildProductFilterExpression(filters)
@@ -110,6 +129,51 @@ export class ProductsService {
 
     do {
       // Lấy limit frontend truyền lên trừ đi số lượng item đã filter được
+      const remainingNeeded = pagination.limit - items.length
+      const response = await this.commerceTableService.query({
+        IndexName: 'GSI1',
+        KeyConditionExpression: '#gsi1pk = :gsi1pk',
+        ExpressionAttributeNames: {
+          '#gsi1pk': 'GSI1PK',
+          ...(filterExpression.ExpressionAttributeNames ?? {}),
+        },
+        ExpressionAttributeValues: {
+          ':gsi1pk': 'PRODUCT',
+          ...(filterExpression.ExpressionAttributeValues ?? {}),
+        },
+        FilterExpression: filterExpression.FilterExpression,
+        Limit: remainingNeeded,
+        ExclusiveStartKey: lastEvaluatedKey,
+        ScanIndexForward: false,
+      })
+
+      const commerceItems = (response.Items ?? []) as ProductItem[]
+      items.push(...commerceItems.map((item) => fromProductItem(item)))
+      scannedCount += response.ScannedCount ?? 0
+      lastEvaluatedKey = response.LastEvaluatedKey
+    } while (items.length < pagination.limit && lastEvaluatedKey)
+
+    const enrichedItems = await this.withPrimaryImageReadUrls(items)
+
+    return {
+      ...toPaginatedResponse('products', pagination, enrichedItems, lastEvaluatedKey),
+      scannedCount,
+    }
+  }
+
+  private async findAllFromLegacyTable(
+    query: ListProductsQueryDto,
+  ): Promise<PaginatedResponse<Product>> {
+    const filters = normalizeProductFilters(query)
+    const cursorScope = toCursorScope(filters)
+    const filterExpression = buildProductFilterExpression(filters)
+
+    const pagination = resolvePaginationState('products', query, cursorScope)
+    const items: Product[] = []
+    let scannedCount = 0
+    let lastEvaluatedKey = pagination.startKey ?? undefined
+
+    do {
       const remainingNeeded = pagination.limit - items.length
       const response = await this.dynamoDbService.documentClient.send(
         new ScanCommand({
@@ -145,6 +209,13 @@ export class ProductsService {
   }
 
   private async findStoredOne(productId: string): Promise<Product> {
+    const commerceProduct = await this.commerceTableService.get<ProductItem>(
+      commerceKeys.product(productId),
+    )
+    if (commerceProduct) {
+      return fromProductItem(commerceProduct)
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.tableName,
@@ -201,6 +272,8 @@ export class ProductsService {
       )
       const updatedProduct = response.Attributes as Product
 
+      await this.upsertProductMirror(updatedProduct)
+
       if (images !== undefined) {
         await this.deleteRemovedProductImages(existingProduct.images, updatedProduct.images)
       }
@@ -226,6 +299,7 @@ export class ProductsService {
           ExpressionAttributeNames: { '#productId': 'productId' },
         }),
       )
+      await this.deleteProductMirror(productId)
       await this.uploadService.deleteObjectsBestEffort(getProductImageKeys(existingProduct.images))
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
@@ -335,6 +409,36 @@ export class ProductsService {
         `Failed to delete removed product images for ${removedKeys.join(', ')}`,
         error,
       )
+    }
+  }
+
+  private async mirrorProduct(product: Product): Promise<void> {
+    try {
+      await this.commerceTableService.put(
+        commerceMapper.toProductItem(product),
+        'attribute_not_exists(#pk)',
+        { '#pk': 'PK' },
+      )
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        this.logger.warn(`Failed to mirror product ${product.productId} into commerce table.`)
+      }
+    }
+  }
+
+  private async upsertProductMirror(product: Product): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toProductItem(product))
+    } catch {
+      this.logger.warn(`Failed to upsert product ${product.productId} into commerce table.`)
+    }
+  }
+
+  private async deleteProductMirror(productId: string): Promise<void> {
+    try {
+      await this.commerceTableService.delete(commerceKeys.product(productId))
+    } catch {
+      this.logger.warn(`Failed to delete product ${productId} from commerce table.`)
     }
   }
 }

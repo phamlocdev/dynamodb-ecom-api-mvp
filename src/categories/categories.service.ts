@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -10,9 +11,14 @@ import {
   DeleteCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
+import { commerceMapper, fromCategoryItem } from '../dynamodb/commerce-table.mappers'
+import { commerceKeys } from '../dynamodb/commerce-table.keys'
+import { CategoryItem } from '../dynamodb/commerce-table.types'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { Category } from './category.types'
 import { CreateCategoryDto } from './dto/create-category.dto'
@@ -23,11 +29,14 @@ import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagin
 
 @Injectable()
 export class CategoriesService {
+  private readonly logger = new Logger(CategoriesService.name)
   private readonly tableName: string
 
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
     @Inject(ConfigService)
     configService: ConfigService,
   ) {
@@ -53,6 +62,7 @@ export class CategoriesService {
           ExpressionAttributeNames: { '#categoryId': 'categoryId' },
         }),
       )
+      await this.mirrorCategory(category)
       return category
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
@@ -63,6 +73,37 @@ export class CategoriesService {
   }
 
   async findAll(query: PaginationQueryDto): Promise<PaginatedResponse<Category>> {
+    const singleTablePage = await this.findAllFromCommerceTable(query)
+    if (singleTablePage.items.length > 0 || query.cursor) {
+      return singleTablePage
+    }
+
+    return this.findAllFromLegacyTable(query)
+  }
+
+  private async findAllFromCommerceTable(
+    query: PaginationQueryDto,
+  ): Promise<PaginatedResponse<Category>> {
+    const pagination = resolvePaginationState('categories', query)
+    const response = await this.commerceTableService.query({
+      IndexName: 'GSI1',
+      KeyConditionExpression: '#gsi1pk = :gsi1pk',
+      ExpressionAttributeNames: { '#gsi1pk': 'GSI1PK' },
+      ExpressionAttributeValues: { ':gsi1pk': 'CATEGORY' },
+      Limit: pagination.limit,
+      ExclusiveStartKey: pagination.startKey ?? undefined,
+    })
+    return toPaginatedResponse(
+      'categories',
+      pagination,
+      (response.Items ?? []).map((item) => fromCategoryItem(item as CategoryItem)),
+      response.LastEvaluatedKey,
+    )
+  }
+
+  private async findAllFromLegacyTable(
+    query: PaginationQueryDto,
+  ): Promise<PaginatedResponse<Category>> {
     const pagination = resolvePaginationState('categories', query)
     const response = await this.dynamoDbService.documentClient.send(
       new ScanCommand({
@@ -80,6 +121,13 @@ export class CategoriesService {
   }
 
   async findOne(categoryId: string): Promise<Category> {
+    const commerceCategory = await this.commerceTableService.get<CategoryItem>(
+      commerceKeys.category(categoryId),
+    )
+    if (commerceCategory) {
+      return fromCategoryItem(commerceCategory)
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({ TableName: this.tableName, Key: { categoryId } }),
     )
@@ -124,7 +172,9 @@ export class CategoriesService {
           ReturnValues: 'ALL_NEW',
         }),
       )
-      return response.Attributes as Category
+      const category = response.Attributes as Category
+      await this.upsertCategoryMirror(category)
+      return category
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
         throw new NotFoundException(`Category ${categoryId} was not found.`)
@@ -143,11 +193,42 @@ export class CategoriesService {
           ExpressionAttributeNames: { '#categoryId': 'categoryId' },
         }),
       )
+      await this.deleteCategoryMirror(categoryId)
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
         throw new NotFoundException(`Category ${categoryId} was not found.`)
       }
       throw error
+    }
+  }
+
+  private async mirrorCategory(category: Category): Promise<void> {
+    try {
+      await this.commerceTableService.put(
+        commerceMapper.toCategoryItem(category),
+        'attribute_not_exists(#pk)',
+        { '#pk': 'PK' },
+      )
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        this.logger.warn(`Failed to mirror category ${category.categoryId} into commerce table.`)
+      }
+    }
+  }
+
+  private async upsertCategoryMirror(category: Category): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toCategoryItem(category))
+    } catch {
+      this.logger.warn(`Failed to upsert category ${category.categoryId} into commerce table.`)
+    }
+  }
+
+  private async deleteCategoryMirror(categoryId: string): Promise<void> {
+    try {
+      await this.commerceTableService.delete(commerceKeys.category(categoryId))
+    } catch {
+      this.logger.warn(`Failed to delete category ${categoryId} from commerce table.`)
     }
   }
 }

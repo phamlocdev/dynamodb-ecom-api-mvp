@@ -11,15 +11,21 @@ import {
   BatchGetCommand,
   GetCommand,
   PutCommand,
+  QueryCommand,
   ScanCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
+import { commerceMapper, fromInventoryItem } from '../dynamodb/commerce-table.mappers'
+import { commerceKeys } from '../dynamodb/commerce-table.keys'
+import { InventoryItem } from '../dynamodb/commerce-table.types'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { DEFAULT_PAGE_SIZE } from '../pagination/pagination-query.dto'
 import { CursorScope, PaginatedResponse } from '../pagination/pagination.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { Product } from '../products/product.types'
 import { ProductStatus } from '../products/product-status.enum'
+import { ProductsService } from '../products/products.service'
 import { InventoryRecord, InventorySummary, ReservedInventoryItem } from './inventory.types'
 import { ListInventoriesQueryDto } from './dto/list-inventories-query.dto'
 
@@ -32,6 +38,10 @@ export class InventoryService {
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
+    @Inject(ProductsService)
+    private readonly productsService: ProductsService,
     @Inject(ConfigService)
     configService: ConfigService,
   ) {
@@ -62,11 +72,19 @@ export class InventoryService {
         },
       }),
     )
+    await this.upsertInventoryMirror(record)
 
     return record
   }
 
   async findOne(productId: string): Promise<InventoryRecord | null> {
+    const commerceInventory = await this.commerceTableService.get<InventoryItem>(
+      commerceKeys.inventory(productId),
+    )
+    if (commerceInventory) {
+      return fromInventoryItem(commerceInventory)
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.tableName,
@@ -79,7 +97,9 @@ export class InventoryService {
 
   async findAll(query: ListInventoriesQueryDto): Promise<PaginatedResponse<InventorySummary>> {
     if (query.productIds && query.productIds.length > 0) {
-      const items = await this.findSummariesByProductIds(query.productIds)
+      const items = await Promise.all(
+        query.productIds.map((productId) => this.findOneSummary(productId)),
+      )
       return {
         items,
         previousCursor: null,
@@ -89,6 +109,55 @@ export class InventoryService {
       }
     }
 
+    const filters = normalizeInventoryFilters(query)
+    const cursorScope = toCursorScope(filters)
+    const filterExpression = buildInventoryProductFilterExpression(filters)
+    const pagination = resolvePaginationState('inventories', query, cursorScope)
+    const items: InventorySummary[] = []
+    let scannedCount = 0
+    let lastEvaluatedKey = pagination.startKey ?? undefined
+
+    do {
+      const remainingNeeded = pagination.limit - items.length
+      const response = await this.commerceTableService.query({
+        IndexName: 'GSI6',
+        KeyConditionExpression: '#gsi6pk = :gsi6pk',
+        ExpressionAttributeNames: {
+          '#gsi6pk': 'GSI6PK',
+          ...(filterExpression.ExpressionAttributeNames ?? {}),
+        },
+        ExpressionAttributeValues: {
+          ':gsi6pk': 'INVENTORY',
+          ...(filterExpression.ExpressionAttributeValues ?? {}),
+        },
+        FilterExpression: filterExpression.FilterExpression,
+        Limit: remainingNeeded,
+        ExclusiveStartKey: lastEvaluatedKey,
+      })
+
+      const inventories = (response.Items ?? []) as InventoryItem[]
+      for (const inventory of inventories) {
+        const product = await this.productsService.findOne(inventory.productId)
+        items.push(toInventorySummary(product, fromInventoryItem(inventory)))
+      }
+
+      scannedCount += response.ScannedCount ?? 0
+      lastEvaluatedKey = response.LastEvaluatedKey
+    } while (items.length < pagination.limit && lastEvaluatedKey)
+
+    if (items.length > 0 || query.cursor) {
+      return {
+        ...toPaginatedResponse('inventories', pagination, items, lastEvaluatedKey),
+        scannedCount,
+      }
+    }
+
+    return this.findAllFromLegacyTable(query)
+  }
+
+  private async findAllFromLegacyTable(
+    query: ListInventoriesQueryDto,
+  ): Promise<PaginatedResponse<InventorySummary>> {
     const filters = normalizeInventoryFilters(query)
     const cursorScope = toCursorScope(filters)
     const filterExpression = buildInventoryProductFilterExpression(filters)
@@ -127,7 +196,7 @@ export class InventoryService {
   }
 
   async findOneSummary(productId: string): Promise<InventorySummary> {
-    const product = await this.findProductOrThrow(productId)
+    const product = await this.productsService.findOne(productId)
     const inventory = await this.ensureInventoryRecord(productId)
     return toInventorySummary(product, inventory)
   }
@@ -161,8 +230,9 @@ export class InventoryService {
         ReturnValues: 'ALL_NEW',
       }),
     )
-
-    return toInventorySummary(product, response.Attributes as InventoryRecord)
+    const inventory = response.Attributes as InventoryRecord
+    await this.upsertInventoryMirror(inventory, product.status)
+    return toInventorySummary(product, inventory)
   }
 
   private async findSummariesByProductIds(productIds: string[]): Promise<InventorySummary[]> {
@@ -298,6 +368,10 @@ export class InventoryService {
           },
         }),
       )
+      const inventory = await this.findOne(productId)
+      if (inventory) {
+        await this.upsertInventoryMirror(inventory)
+      }
       this.logger.log(`Reserved quantity=${quantity} for product ${productId}.`)
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
@@ -330,6 +404,32 @@ export class InventoryService {
           },
         }),
       )
+      const inventory = await this.findOne(item.productId)
+      if (inventory) {
+        await this.upsertInventoryMirror(inventory)
+      }
+    }
+  }
+
+  async syncMirrorForProduct(productId: string): Promise<void> {
+    const inventory = await this.findOne(productId)
+    if (!inventory) {
+      return
+    }
+
+    await this.upsertInventoryMirror(inventory)
+  }
+
+  private async upsertInventoryMirror(
+    inventory: InventoryRecord,
+    productStatus?: ProductStatus,
+  ): Promise<void> {
+    try {
+      const status =
+        productStatus ?? (await this.productsService.findOne(inventory.productId)).status
+      await this.commerceTableService.put(commerceMapper.toInventoryItem(inventory, status))
+    } catch {
+      this.logger.warn(`Failed to upsert inventory ${inventory.productId} into commerce table.`)
     }
   }
 }

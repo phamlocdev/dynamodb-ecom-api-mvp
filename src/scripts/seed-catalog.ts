@@ -1,9 +1,6 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
-import {
-  buildSeedCategories,
-  buildSeedProducts,
-  getInventoryQuantity,
-} from './catalog-seed-data'
+import { buildSeedCategories, buildSeedProducts, getInventoryQuantity } from './catalog-seed-data'
+import { commerceMapper } from '../dynamodb/commerce-table.mappers'
 import { exitWithError, getScriptContext, nowIso } from './script-helpers'
 
 export async function seedCatalog(): Promise<void> {
@@ -21,6 +18,16 @@ export async function seedCatalog(): Promise<void> {
           createdAt: timestamp,
           updatedAt: timestamp,
         },
+      }),
+    )
+    await documentClient.send(
+      new PutCommand({
+        TableName: runtimeEnv.ECOMMERCE_TABLE,
+        Item: commerceMapper.toCategoryItem({
+          ...category,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }),
       }),
     )
   }
@@ -42,6 +49,23 @@ export async function seedCatalog(): Promise<void> {
         },
       }),
     )
+    const productRecord = {
+      productId: product.productId,
+      categoryId: product.categoryId,
+      name: product.name,
+      description: product.description,
+      price: product.price,
+      currency: product.currency,
+      status: product.status,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    } as const
+    await documentClient.send(
+      new PutCommand({
+        TableName: runtimeEnv.ECOMMERCE_TABLE,
+        Item: commerceMapper.toProductItem(productRecord),
+      }),
+    )
 
     await documentClient.send(
       new PutCommand({
@@ -52,6 +76,20 @@ export async function seedCatalog(): Promise<void> {
           reservedQuantity: 0,
           updatedAt: timestamp,
         },
+      }),
+    )
+    await documentClient.send(
+      new PutCommand({
+        TableName: runtimeEnv.ECOMMERCE_TABLE,
+        Item: commerceMapper.toInventoryItem(
+          {
+            productId: product.productId,
+            availableQuantity: getInventoryQuantity(index),
+            reservedQuantity: 0,
+            updatedAt: timestamp,
+          },
+          product.status,
+        ),
       }),
     )
   }

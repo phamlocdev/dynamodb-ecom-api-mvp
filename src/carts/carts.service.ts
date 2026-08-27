@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common'
@@ -15,6 +16,14 @@ import {
 } from '@aws-sdk/lib-dynamodb'
 import { randomUUID } from 'crypto'
 import { AuthenticatedUser } from '../auth/auth.types'
+import {
+  commerceMapper,
+  fromCartItemRecord,
+  fromCartRecord,
+} from '../dynamodb/commerce-table.mappers'
+import { commerceKeys } from '../dynamodb/commerce-table.keys'
+import { CartItemRecord, CartRecord } from '../dynamodb/commerce-table.types'
+import { CommerceTableService } from '../dynamodb/commerce-table.service'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { CartStatus } from './cart-status.enum'
 import { Cart, CartDetails, CartItem } from './cart.types'
@@ -26,12 +35,15 @@ const DEFAULT_TTL_DAYS = 30
 
 @Injectable()
 export class CartsService {
+  private readonly logger = new Logger(CartsService.name)
   private readonly cartsTableName: string
   private readonly cartItemsTableName: string
 
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
+    @Inject(CommerceTableService)
+    private readonly commerceTableService: CommerceTableService,
     @Inject(ConfigService)
     configService: ConfigService,
   ) {
@@ -63,11 +75,31 @@ export class CartsService {
         },
       }),
     )
+    await this.mirrorCart(cart)
 
     return cart
   }
 
   async findAllForCustomer(user: AuthenticatedUser): Promise<Cart[]> {
+    const commerceResponse = await this.commerceTableService.query({
+      KeyConditionExpression: '#pk = :pk AND begins_with(#sk, :cartPrefix)',
+      ExpressionAttributeNames: {
+        '#pk': 'PK',
+        '#sk': 'SK',
+      },
+      ExpressionAttributeValues: {
+        ':pk': `CUSTOMER#${user.sub}`,
+        ':cartPrefix': 'CART#',
+      },
+      ScanIndexForward: false,
+    })
+
+    if ((commerceResponse.Items ?? []).length > 0) {
+      return (commerceResponse.Items ?? [])
+        .map((item) => fromCartRecord(item as CartRecord))
+        .map((cart) => this.withDerivedStatus(cart))
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new QueryCommand({
         TableName: this.cartsTableName,
@@ -114,6 +146,7 @@ export class CartsService {
         Item: item,
       }),
     )
+    await this.upsertCartItemMirror(item)
 
     await this.touchCart(cart)
     return this.findOneForCustomer(user, cartId)
@@ -127,6 +160,8 @@ export class CartsService {
   ): Promise<CartDetails> {
     const cart = await this.getOwnedCartOrThrow(user.sub, cartId)
     ensureCartUsable(cart)
+    const existingItems = await this.findItems(cartId)
+    const existingItem = existingItems.find((item) => item.productId === productId)
 
     try {
       await this.dynamoDbService.documentClient.send(
@@ -153,6 +188,15 @@ export class CartsService {
       throw error
     }
 
+    await this.upsertCartItemMirror({
+      cartId,
+      customerId: user.sub,
+      productId,
+      quantity: dto.quantity,
+      createdAt: existingItem?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
     await this.touchCart(cart)
     return this.findOneForCustomer(user, cartId)
   }
@@ -177,10 +221,19 @@ export class CartsService {
       throw error
     }
 
+    await this.deleteCartItemMirror(cartId, productId)
+
     await this.touchCart(cart)
   }
 
   async getOwnedCartOrThrow(customerId: string, cartId: string): Promise<Cart> {
+    const commerceCart = await this.commerceTableService.get<CartRecord>(
+      commerceKeys.cart(customerId, cartId),
+    )
+    if (commerceCart) {
+      return this.withDerivedStatus(fromCartRecord(commerceCart))
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.cartsTableName,
@@ -224,9 +277,32 @@ export class CartsService {
         },
       }),
     )
+    await this.upsertCartMirror({
+      ...cart,
+      status: CartStatus.EXPIRED,
+      updatedAt: new Date().toISOString(),
+    })
   }
 
   private async findItems(cartId: string): Promise<CartItem[]> {
+    const commerceResponse = await this.commerceTableService.query({
+      KeyConditionExpression: '#pk = :pk AND begins_with(#sk, :itemPrefix)',
+      ExpressionAttributeNames: {
+        '#pk': 'PK',
+        '#sk': 'SK',
+      },
+      ExpressionAttributeValues: {
+        ':pk': `CART#${cartId}`,
+        ':itemPrefix': 'ITEM#',
+      },
+    })
+
+    if ((commerceResponse.Items ?? []).length > 0) {
+      return (commerceResponse.Items ?? []).map((item) =>
+        fromCartItemRecord(item as CartItemRecord),
+      )
+    }
+
     const response = await this.dynamoDbService.documentClient.send(
       new QueryCommand({
         TableName: this.cartItemsTableName,
@@ -240,6 +316,11 @@ export class CartsService {
   }
 
   private async touchCart(cart: Cart): Promise<void> {
+    const updatedCart = {
+      ...cart,
+      status: this.withDerivedStatus(cart).status,
+      updatedAt: new Date().toISOString(),
+    }
     await this.dynamoDbService.documentClient.send(
       new UpdateCommand({
         TableName: this.cartsTableName,
@@ -250,11 +331,12 @@ export class CartsService {
           '#updatedAt': 'updatedAt',
         },
         ExpressionAttributeValues: {
-          ':status': this.withDerivedStatus(cart).status,
-          ':updatedAt': new Date().toISOString(),
+          ':status': updatedCart.status,
+          ':updatedAt': updatedCart.updatedAt,
         },
       }),
     )
+    await this.upsertCartMirror(updatedCart)
   }
 
   private withDerivedStatus(cart: Cart): Cart {
@@ -272,6 +354,46 @@ export class CartsService {
     return {
       ...cart,
       status: CartStatus.ACTIVE,
+    }
+  }
+
+  private async mirrorCart(cart: Cart): Promise<void> {
+    try {
+      await this.commerceTableService.put(
+        commerceMapper.toCartRecord(cart),
+        'attribute_not_exists(#pk) AND attribute_not_exists(#sk)',
+        { '#pk': 'PK', '#sk': 'SK' },
+      )
+    } catch {
+      this.logger.warn(`Failed to mirror cart ${cart.cartId} into commerce table.`)
+    }
+  }
+
+  private async upsertCartMirror(cart: Cart): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toCartRecord(cart))
+    } catch {
+      this.logger.warn(`Failed to upsert cart ${cart.cartId} into commerce table.`)
+    }
+  }
+
+  private async upsertCartItemMirror(item: CartItem): Promise<void> {
+    try {
+      await this.commerceTableService.put(commerceMapper.toCartItemRecord(item))
+    } catch {
+      this.logger.warn(
+        `Failed to upsert cart item ${item.productId} for cart ${item.cartId} into commerce table.`,
+      )
+    }
+  }
+
+  private async deleteCartItemMirror(cartId: string, productId: string): Promise<void> {
+    try {
+      await this.commerceTableService.delete(commerceKeys.cartItem(cartId, productId))
+    } catch {
+      this.logger.warn(
+        `Failed to delete cart item ${productId} for cart ${cartId} from commerce table.`,
+      )
     }
   }
 }
