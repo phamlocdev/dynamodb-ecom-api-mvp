@@ -10,7 +10,7 @@ export class HealthController {
 
   @Get()
   @Public()
-  @ApiOperation({ summary: 'Check NestJS and LocalStack DynamoDB connectivity' })
+  @ApiOperation({ summary: 'Check NestJS and Amazon DynamoDB connectivity' })
   @ApiResponse({ status: 200, description: 'DynamoDB is reachable.' })
   @ApiResponse({ status: 503, description: 'DynamoDB is unreachable.' })
   async getHealth(): Promise<{ status: 'ok'; dynamodb: 'ok' }> {

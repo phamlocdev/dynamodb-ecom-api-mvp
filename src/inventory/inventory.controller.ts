@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Inject,
-  Param,
-  Patch,
-  Query,
-} from '@nestjs/common'
+import { Body, Controller, Get, Inject, Param, Patch, Query } from '@nestjs/common'
 import {
   ApiBadRequestResponse,
   ApiNotFoundResponse,
@@ -52,8 +44,7 @@ export class InventoryController {
     required: false,
     isArray: true,
     type: String,
-    description:
-      'Optional comma-separated list of product IDs for batched inventory summaries.',
+    description: 'Optional comma-separated list of product IDs for batched inventory summaries.',
   })
   @ApiOkResponse({ type: PaginatedInventoryResponseDto })
   findAll(

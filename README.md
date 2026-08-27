@@ -1,20 +1,16 @@
 # DynamoDB E-commerce Learning MVP
 
-NestJS REST API for learning DynamoDB with LocalStack. The server can run in two modes:
+NestJS e-commerce API running on AWS: Lambda, API Gateway HTTP API, DynamoDB, SQS, EventBridge, S3, and Cognito.
 
-- Local NestJS HTTP server for development.
-- AWS Lambda behind API Gateway REST API v1, deployed to LocalStack with AWS CDK.
+## AWS development flow
 
-## LocalStack Lambda flow
-
-1. Create `.env` and set `LOCALSTACK_AUTH_TOKEN` if your LocalStack image requires it.
-2. Install dependencies: `npm install`
-3. Start LocalStack: `docker compose up -d`
-4. Bootstrap CDK assets in LocalStack once: `npm run infra:bootstrap`
-5. Deploy infrastructure and DynamoDB tables: `npm run infra:deploy`
-6. Seed demo data: `npm run db:seed`
-7. Use the `LocalStackApiGatewayUrl` printed by CDK output to call the API through LocalStack.
-   If local DNS does not resolve, use `LocalStackApiGatewayFallbackUrl`.
+1. Configure AWS CLI credentials for your account and region.
+2. Copy `.env.example` to `.env.dev`; provide your account ID and globally unique S3/Cognito names.
+3. Install dependencies: `npm install`.
+4. Validate the template: `npm run infra:synth`.
+5. Bootstrap CDK once per account/region: `npm run infra:bootstrap -- aws://<account-id>/ap-southeast-1`.
+6. Deploy: `npm run infra:deploy`.
+7. Use the `ApiGatewayUrl` from `aws-outputs.json`.
 
 Useful commands:
 
@@ -25,32 +21,18 @@ npm run infra:deploy
 npm run infra:destroy
 ```
 
+Lambda functions use their IAM execution roles. Do not place AWS access keys in `.env.dev`.
+
 ## Local NestJS development
 
-Run the same API directly on your machine:
-
-```bash
-npm run start:dev
-```
-
-Local API: <http://localhost:8000>
-
-Swagger is local-only: <http://localhost:8000/api>
-
-`npm run db:setup` is kept as a manual fallback for creating tables outside CDK. The recommended path is `npm run infra:deploy`.
+`npm run start:dev` runs the API locally but calls actual AWS services using your configured AWS credentials. Swagger is available at <http://localhost:8000/api>.
 
 ## Endpoints
 
-| Method   | Endpoint                   | Purpose                                            |
-| -------- | -------------------------- | -------------------------------------------------- |
-| `GET`    | `/health`                  | Check NestJS and LocalStack DynamoDB connectivity. |
-| `POST`   | `/products`                | Create a product with VND integer price.           |
-| `GET`    | `/products`                | List products with cursor pagination and filters.  |
-| `GET`    | `/products/{productId}`    | Get one product by primary key.                    |
-| `PATCH`  | `/products/{productId}`    | Update mutable product fields.                     |
-| `DELETE` | `/products/{productId}`    | Delete a product.                                  |
-| `POST`   | `/categories`              | Create a category with a stable slug.              |
-| `GET`    | `/categories`              | List categories.                                   |
-| `GET`    | `/categories/{categoryId}` | Get one category.                                  |
-| `PATCH`  | `/categories/{categoryId}` | Update category name or description.               |
-| `DELETE` | `/categories/{categoryId}` | Delete a category.                                 |
+| Method | Endpoint                | Purpose                                           |
+| ------ | ----------------------- | ------------------------------------------------- |
+| `GET`  | `/health`               | Check NestJS and Amazon DynamoDB connectivity.    |
+| `POST` | `/products`             | Create a product with VND integer price.          |
+| `GET`  | `/products`             | List products with cursor pagination and filters. |
+| `GET`  | `/products/{productId}` | Get one product by primary key.                   |
+| `POST` | `/orders`               | Place an order asynchronously through SQS.        |

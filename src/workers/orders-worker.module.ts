@@ -13,6 +13,7 @@ import { OrdersWorkerService } from './orders-worker.service'
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: process.env.RUNTIME_ENV_FILE ?? '.env.dev',
       validate: validateRuntimeEnv,
     }),
     DynamoDbModule,

@@ -99,7 +99,11 @@ function resolveClientIp(request: Request): string {
     return forwardedFor.split(',')[0]?.trim() ?? '127.0.0.1'
   }
 
-  const apiGatewaySourceIp = (request as Request & { apiGateway?: { event?: { requestContext?: { http?: { sourceIp?: string } } } } }).apiGateway?.event?.requestContext?.http?.sourceIp
+  const apiGatewaySourceIp = (
+    request as Request & {
+      apiGateway?: { event?: { requestContext?: { http?: { sourceIp?: string } } } }
+    }
+  ).apiGateway?.event?.requestContext?.http?.sourceIp
   if (apiGatewaySourceIp) {
     return apiGatewaySourceIp
   }

@@ -13,19 +13,10 @@ export class OrdersQueueService {
       configService.get<string>('AWS_REGION') ??
       configService.get<string>('AWS_DEFAULT_REGION') ??
       'ap-southeast-1'
-    const endpoint = configService.get<string>('DYNAMODB_ENDPOINT')
-    const accessKeyId = configService.get<string>('AWS_ACCESS_KEY_ID') ?? 'test'
-    const secretAccessKey = configService.get<string>('AWS_SECRET_ACCESS_KEY') ?? 'test'
-
     this.placeOrderQueueUrl = configService.get<string>('PLACE_ORDER_QUEUE_URL') ?? ''
 
     this.sqsClient = new SQSClient({
       region,
-      ...(endpoint ? { endpoint } : {}),
-      credentials: {
-        accessKeyId,
-        secretAccessKey,
-      },
     })
   }
 
@@ -34,7 +25,8 @@ export class OrdersQueueService {
       new SendMessageCommand({
         QueueUrl: this.placeOrderQueueUrl,
         MessageBody: JSON.stringify(message),
-        MessageGroupId: message.customerId,
+        // MessageGroupId: message.customerId,
+        MessageGroupId: 'ORDER',
         MessageDeduplicationId: message.deduplicationKey,
       }),
     )

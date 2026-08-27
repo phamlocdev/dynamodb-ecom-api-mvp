@@ -63,7 +63,7 @@ export class PresignedUploadItemDto {
   @ApiProperty({ example: 'products/7b8c/a1f2-front.webp' })
   imageKey!: string
 
-  @ApiProperty({ example: 'http://localhost.localstack.cloud:4566/ecommerce-media-local' })
+  @ApiProperty({ example: 'https://ecommerce-dev-media.s3.ap-southeast-1.amazonaws.com' })
   url!: string
 
   @ApiProperty({

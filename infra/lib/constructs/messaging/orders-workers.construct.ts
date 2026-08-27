@@ -1,4 +1,3 @@
-import * as path from 'path'
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as events from 'aws-cdk-lib/aws-events'
@@ -9,8 +8,12 @@ import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import { Construct } from 'constructs'
-import { getLocalStackInfraEnv } from '../../config/env'
-import { createNodejsBundling, removeGeneratedSourceArtifacts } from '../../shared/lambda-bundling'
+import { getAwsInfraEnv } from '../../config/env'
+import {
+  createNodejsBundling,
+  removeGeneratedSourceArtifacts,
+  sourceEntryPath,
+} from '../../shared/lambda-bundling'
 
 export interface OrdersWorkersConstructProps {
   productsTable: dynamodb.ITable
@@ -30,22 +33,20 @@ export class OrdersWorkersConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: OrdersWorkersConstructProps) {
     super(scope, id)
-    const infraEnv = getLocalStackInfraEnv()
+    const infraEnv = getAwsInfraEnv()
 
     const sharedEnvironment = {
-      PRODUCTS_TABLE: infraEnv.productsTableName,
-      CARTS_TABLE: infraEnv.cartsTableName,
-      CART_ITEMS_TABLE: infraEnv.cartItemsTableName,
-      ORDERS_TABLE: infraEnv.ordersTableName,
-      ORDER_ITEMS_TABLE: infraEnv.orderItemsTableName,
-      INVENTORY_TABLE: infraEnv.inventoryTableName,
-      DYNAMODB_ENDPOINT: infraEnv.dynamoDbLambdaEndpoint,
-      COGNITO_IDP_ENDPOINT: infraEnv.cognitoIdpLambdaEndpoint,
+      PRODUCTS_TABLE: props.productsTable.tableName,
+      CARTS_TABLE: props.cartsTable.tableName,
+      CART_ITEMS_TABLE: props.cartItemsTable.tableName,
+      ORDERS_TABLE: props.ordersTable.tableName,
+      ORDER_ITEMS_TABLE: props.orderItemsTable.tableName,
+      INVENTORY_TABLE: props.inventoryTable.tableName,
       COGNITO_USER_POOL_ID: props.userPoolId,
       COGNITO_CLIENT_ID: props.userPoolClientId,
-      PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
       VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
       VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
+      PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
       VNPAY_PAYMENT_URL: infraEnv.vnpayPaymentUrl,
       VNPAY_RETURN_URL: infraEnv.vnpayReturnUrl,
       VNPAY_IPN_URL: infraEnv.vnpayIpnUrl,
@@ -57,7 +58,7 @@ export class OrdersWorkersConstruct extends Construct {
 
     this.placeOrderWorker = new nodejs.NodejsFunction(this, 'PlaceOrderWorker', {
       runtime: lambda.Runtime.NODEJS_24_X,
-      entry: path.join(__dirname, '..', '..', '..', '..', 'src', 'order-worker.ts'),
+      entry: sourceEntryPath('order-worker.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(60),
       memorySize: 512,
@@ -69,7 +70,7 @@ export class OrdersWorkersConstruct extends Construct {
 
     this.reservationExpiryPoller = new nodejs.NodejsFunction(this, 'ReservationExpiryPoller', {
       runtime: lambda.Runtime.NODEJS_24_X,
-      entry: path.join(__dirname, '..', '..', '..', '..', 'src', 'order-expiry-poller.ts'),
+      entry: sourceEntryPath('order-expiry-poller.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(60),
       memorySize: 512,

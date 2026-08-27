@@ -1,11 +1,10 @@
-import * as path from 'path'
 import * as cdk from 'aws-cdk-lib'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import { Construct } from 'constructs'
-import { getLocalStackInfraEnv } from '../../config/env'
-import { createNodejsBundling } from '../../shared/lambda-bundling'
+import { getAwsInfraEnv } from '../../config/env'
+import { createNodejsBundling, sourceEntryPath } from '../../shared/lambda-bundling'
 import { InfraRole } from '../../shared/roles'
 import { createUserPoolGroups } from './cognito-groups'
 
@@ -24,13 +23,13 @@ export class CognitoConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: CognitoConstructProps) {
     super(scope, id)
-    const infraEnv = getLocalStackInfraEnv()
+    const infraEnv = getAwsInfraEnv()
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: true,
       signInAliases: { email: true, username: true },
       autoVerify: { email: true },
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       passwordPolicy: {
         minLength: 8,
@@ -41,30 +40,19 @@ export class CognitoConstruct extends Construct {
       },
     })
 
-    if (infraEnv.enableLocalStackCognitoTriggers) {
-      const postConfirmationHandler = new nodejs.NodejsFunction(this, 'PostConfirmationHandler', {
-        runtime: lambda.Runtime.NODEJS_24_X,
-        entry: path.join(
-          __dirname,
-          '..',
-          '..',
-          '..',
-          '..',
-          'src',
-          'cognito',
-          'post-confirmation.ts',
-        ),
-        handler: 'handler',
-        timeout: cdk.Duration.seconds(15),
-        memorySize: 256,
-        bundling: createNodejsBundling(),
-        environment: {
-          COGNITO_DEFAULT_GROUP: InfraRole.customer,
-        },
-      })
+    const postConfirmationHandler = new nodejs.NodejsFunction(this, 'PostConfirmationHandler', {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      entry: sourceEntryPath('cognito', 'post-confirmation.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 256,
+      bundling: createNodejsBundling(),
+      environment: {
+        COGNITO_DEFAULT_GROUP: InfraRole.customer,
+      },
+    })
 
-      this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, postConfirmationHandler)
-    }
+    this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, postConfirmationHandler)
 
     const supportedIdentityProviders = [cognito.UserPoolClientIdentityProvider.COGNITO]
     const googleProvider =

@@ -14,7 +14,10 @@ async function bootstrap(): Promise<PromiseHandler> {
   return serverlessExpress({ app: expressInstance }) as any
 }
 
-export const handler = async (event: APIGatewayProxyEventV2, context: Context): Promise<unknown> => {
+export const handler = async (
+  event: APIGatewayProxyEventV2,
+  context: Context,
+): Promise<unknown> => {
   cachedHandler ??= await bootstrap()
   return cachedHandler(event, context)
 }

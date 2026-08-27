@@ -1,21 +1,23 @@
 import * as path from 'path'
 import * as dotenv from 'dotenv'
-import { LocalStackInfraEnv, validateLocalStackInfraEnv } from '../../../src/config/env.validation'
+import { AwsInfraEnv, validateAwsInfraEnv } from '../../../src/config/env.validation'
 
 dotenv.config({
-  path: path.resolve(__dirname, '..', '..', '..', '.env'),
+  path: process.env.INFRA_ENV_FILE
+    ? path.resolve(process.env.INFRA_ENV_FILE)
+    : path.resolve(__dirname, '..', '..', '..', '.env'),
   override: true,
   quiet: true,
 })
 
-let cachedEnv: LocalStackInfraEnv | undefined
+let cachedEnv: AwsInfraEnv | undefined
 
-export function getLocalStackInfraEnv(): LocalStackInfraEnv {
+export function getAwsInfraEnv(): AwsInfraEnv {
   if (cachedEnv) {
     return cachedEnv
   }
 
-  cachedEnv = validateLocalStackInfraEnv(process.env)
+  cachedEnv = validateAwsInfraEnv(process.env)
 
   return cachedEnv
 }

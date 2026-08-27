@@ -1,12 +1,10 @@
-import * as path from 'path'
 import * as cdk from 'aws-cdk-lib'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as s3n from 'aws-cdk-lib/aws-s3-notifications'
 import { Construct } from 'constructs'
-import { getLocalStackInfraEnv } from '../../config/env'
-import { createNodejsBundling } from '../../shared/lambda-bundling'
+import { createNodejsBundling, sourceEntryPath } from '../../shared/lambda-bundling'
 
 export interface ImageProcessorConstructProps {
   mediaBucket: s3.IBucket
@@ -17,12 +15,10 @@ export class ImageProcessorConstruct extends Construct {
 
   constructor(scope: Construct, id: string, props: ImageProcessorConstructProps) {
     super(scope, id)
-    const infraEnv = getLocalStackInfraEnv()
-
     this.handler = new nodejs.NodejsFunction(this, 'Handler', {
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
-      entry: path.join(__dirname, '..', '..', '..', '..', 'src', 'image-processor.ts'),
+      entry: sourceEntryPath('image-processor.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(30),
       memorySize: 1024,
@@ -30,11 +26,10 @@ export class ImageProcessorConstruct extends Construct {
         nodeModules: ['sharp'],
         forceDockerBundling: true,
         preCompilation: false,
+        afterBundling: (_inputDir, outputDir) => [`rm -rf ${outputDir}/node_modules/.bin`],
       }),
       environment: {
         MEDIA_BUCKET_NAME: props.mediaBucket.bucketName,
-        ...(infraEnv.s3Endpoint ? { S3_ENDPOINT: infraEnv.s3Endpoint } : {}),
-        ...(infraEnv.s3LambdaEndpoint ? { S3_LAMBDA_ENDPOINT: infraEnv.s3LambdaEndpoint } : {}),
       },
     })
 

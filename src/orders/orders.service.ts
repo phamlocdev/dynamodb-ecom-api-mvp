@@ -21,9 +21,12 @@ import { Role } from '../auth/roles.enum'
 import { CartsService } from '../carts/carts.service'
 import { CartStatus } from '../carts/cart-status.enum'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
+import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
+import { Product } from '../products/product.types'
+import { ProductsService } from '../products/products.service'
 import { UsersService } from '../users/users.service'
 import { OrdersQueueService } from './orders.queue'
 import { CreateOrderDto } from './dto/create-order.dto'
@@ -35,7 +38,6 @@ import {
   Order,
   OrderDetails,
   OrderItem,
-  PlaceOrderMessage,
   TriggerPaymentResult,
   VnpayReturnResult,
 } from './orders.types'
@@ -70,6 +72,10 @@ export class OrdersService {
     private readonly dynamoDbService: DynamoDbService,
     @Inject(CartsService)
     private readonly cartsService: CartsService,
+    @Inject(InventoryService)
+    private readonly inventoryService: InventoryService,
+    @Inject(ProductsService)
+    private readonly productsService: ProductsService,
     @Inject(UsersService)
     private readonly usersService: UsersService,
     @Inject(OrdersQueueService)
@@ -122,16 +128,85 @@ export class OrdersService {
       }),
     )
 
-    const message: PlaceOrderMessage = {
-      orderId: order.orderId,
-      customerId: order.customerId,
-      cartId: order.cartId,
-      deduplicationKey: order.deduplicationKey,
-      requestedAt: timestamp,
-    }
-    await this.ordersQueueService.enqueuePlaceOrder(message)
+    this.logger.log(
+      `>>>>>> [START]: Processing order ${order.orderId} for cart ${order.cartId} and customer ${order.customerId}.`,
+    )
 
-    return order
+    const cartItems = await this.cartsService.getCartItems(cart.cartId)
+    if (cartItems.length === 0) {
+      this.logger.warn(
+        `>>>>>> [WARN]: Order ${order.orderId} failed because cart ${cart.cartId} has no items.`,
+      )
+      await this.markFailed(order.orderId, OrderStatus.FAILED, 'Cart has no items.')
+      return this.getById(order.orderId)
+    }
+
+    const reservedItems: ReservedInventoryItem[] = []
+
+    try {
+      const productSnapshots: Array<{ item: (typeof cartItems)[number]; product: Product }> = []
+      for (const item of cartItems) {
+        const product = await this.productsService.findOne(item.productId)
+
+        await this.inventoryService.reserve(item.productId, item.quantity)
+        reservedItems.push({ productId: item.productId, quantity: item.quantity })
+        productSnapshots.push({ item, product })
+      }
+
+      const createdAt = new Date().toISOString()
+      const orderItems: OrderItem[] = productSnapshots.map(({ item, product }, index) => ({
+        orderId: order.orderId,
+        lineId: `${String(index + 1).padStart(3, '0')}-${randomUUID().slice(0, 8)}`,
+        productId: product.productId,
+        productName: product.name,
+        imageUrl: product.imageUrl,
+        unitPrice: product.price,
+        quantity: item.quantity,
+        lineTotal: product.price * item.quantity,
+        createdAt,
+      }))
+
+      for (const orderItem of orderItems) {
+        await this.dynamoDbService.documentClient.send(
+          new PutCommand({
+            TableName: this.orderItemsTableName,
+            Item: orderItem,
+          }),
+        )
+      }
+
+      const totalAmount = orderItems.reduce((total, item) => total + item.lineTotal, 0)
+      await this.markReserved(order.orderId, totalAmount)
+      this.logger.log(
+        `>>>>>> [SUCCESS]: Order ${order.orderId} reserved successfully with ${orderItems.length} items and totalAmount=${totalAmount}.`,
+      )
+    } catch (error) {
+      const failureReason = error instanceof Error ? error.message : 'Failed to process order.'
+
+      if (reservedItems.length > 0) {
+        await this.failPendingOrderAndReleaseReservation(
+          order.orderId,
+          failureReason,
+          reservedItems,
+        )
+      } else {
+        await this.markFailed(order.orderId, OrderStatus.FAILED, failureReason)
+      }
+
+      if (error instanceof ConflictException) {
+        this.logger.warn(
+          `>>>>>> [FAIL]: Order ${order.orderId} failed during reservation: ${failureReason}`,
+        )
+      } else {
+        this.logger.error(`>>>>>> [ERROR]: Order ${order.orderId} failed during processing.`, error)
+      }
+
+      if (!(error instanceof ConflictException)) {
+        throw error
+      }
+    }
+
+    return this.getById(order.orderId)
   }
 
   async findAll(
@@ -247,7 +322,7 @@ export class OrdersService {
         'Payment window is about to expire. Please place the order again.',
       )
     }
-    const paymentUrl = this.vnpayService.buildOrderPaymentUrl({
+    const paymentUrl = await this.vnpayService.buildOrderPaymentUrl({
       amount: order.totalAmount,
       clientIp,
       createDate: requestedAt,
@@ -311,7 +386,7 @@ export class OrdersService {
 
   async handleVnpayReturn(query: Record<string, string>): Promise<VnpayReturnResult> {
     try {
-      const verify = this.vnpayService.verifyReturnQuery(query)
+      const verify = await this.vnpayService.verifyReturnQuery(query)
       if (verify.isVerified) {
         try {
           await this.reconcileVerifiedGatewayResult(verify, 'return')
@@ -343,7 +418,7 @@ export class OrdersService {
     let verify: VerifyIpnCall
 
     try {
-      verify = this.vnpayService.verifyIpnQuery(query)
+      verify = await this.vnpayService.verifyIpnQuery(query)
     } catch {
       return IpnFailChecksum
     }

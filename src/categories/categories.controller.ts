@@ -45,7 +45,9 @@ export class CategoriesController {
   @ApiCreatedResponse({ type: CategoryResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
   @ApiConflictResponse({ description: 'categoryId already exists.' })
-  create(@Body(new DtoValidationPipe(CreateCategoryDto)) dto: CreateCategoryDto): Promise<Category> {
+  create(
+    @Body(new DtoValidationPipe(CreateCategoryDto)) dto: CreateCategoryDto,
+  ): Promise<Category> {
     return this.categoriesService.create(dto)
   }
 

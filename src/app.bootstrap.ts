@@ -1,15 +1,14 @@
-import { ValidationPipe } from '@nestjs/common'
+import { ConsoleLogger, ValidationPipe } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { NestExpressApplication } from '@nestjs/platform-express'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { AppModule } from './app.module'
 
 const { eventContext } = require('@codegenie/serverless-express/src/middleware') as {
-  eventContext: (options?: { reqPropKey?: string; deleteHeaders?: boolean }) => (
-    req: unknown,
-    res: unknown,
-    next: () => void,
-  ) => void
+  eventContext: (options?: {
+    reqPropKey?: string
+    deleteHeaders?: boolean
+  }) => (req: unknown, res: unknown, next: () => void) => void
 }
 
 export interface BootstrapOptions {
@@ -19,7 +18,12 @@ export interface BootstrapOptions {
 export async function createNestApp(
   options: BootstrapOptions = {},
 ): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new ConsoleLogger('', {
+      logLevels: ['log', 'error', 'warn'],
+      colors: false,
+    }),
+  })
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -34,7 +38,7 @@ export async function createNestApp(
   if (options.enableSwagger) {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('DynamoDB E-commerce Learning API')
-      .setDescription('REST API for learning DynamoDB with LocalStack')
+      .setDescription('REST API for learning DynamoDB on AWS')
       .setVersion('1.0')
       .build()
     const document = SwaggerModule.createDocument(app, swaggerConfig)

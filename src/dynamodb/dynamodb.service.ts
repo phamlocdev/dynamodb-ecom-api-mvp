@@ -16,11 +16,8 @@ export class DynamoDbService {
 
   constructor(@Inject(ConfigService) configService: ConfigService) {
     const settings = getDynamoDbSettings({
-      DYNAMODB_ENDPOINT: configService.get<string>('DYNAMODB_ENDPOINT'),
       AWS_REGION: configService.get<string>('AWS_REGION'),
       AWS_DEFAULT_REGION: configService.get<string>('AWS_DEFAULT_REGION'),
-      AWS_ACCESS_KEY_ID: configService.get<string>('AWS_ACCESS_KEY_ID'),
-      AWS_SECRET_ACCESS_KEY: configService.get<string>('AWS_SECRET_ACCESS_KEY'),
     })
     this.client = createDynamoDbClient(settings)
     this.documentClient = createDynamoDbDocumentClient(settings)
