@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common'
+import { ConsoleLogger, ValidationPipe } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { NestExpressApplication } from '@nestjs/platform-express'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
@@ -18,7 +18,12 @@ export interface BootstrapOptions {
 export async function createNestApp(
   options: BootstrapOptions = {},
 ): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new ConsoleLogger('', {
+      logLevels: ['log', 'error', 'warn'],
+      colors: false,
+    }),
+  })
 
   app.useGlobalPipes(
     new ValidationPipe({

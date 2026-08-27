@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -24,6 +25,7 @@ import { ListInventoriesQueryDto } from './dto/list-inventories-query.dto'
 
 @Injectable()
 export class InventoryService {
+  private readonly logger = new Logger(InventoryService.name)
   private readonly tableName: string
   private readonly productsTableName: string
 
@@ -275,23 +277,16 @@ export class InventoryService {
   }
 
   async reserve(productId: string, quantity: number): Promise<void> {
-    const inventoryRecord = await this.ensureInventoryRecord(productId)
+    await this.ensureInventoryRecord(productId)
 
     try {
-      if (inventoryRecord.availableQuantity < quantity) {
-        throw new ConflictException(`Insufficient inventory for product ${productId}.`)
-      }
-
-      // Simulate a delay to test overselling scenarios
-      await new Promise((resolve) => setTimeout(resolve, 3000))
-
       await this.dynamoDbService.documentClient.send(
         new UpdateCommand({
           TableName: this.tableName,
           Key: { productId },
           UpdateExpression:
             'SET #availableQuantity = #availableQuantity - :quantity, #reservedQuantity = #reservedQuantity + :quantity, #updatedAt = :updatedAt',
-          // ConditionExpression: '#availableQuantity >= :quantity',
+          ConditionExpression: '#availableQuantity >= :quantity',
           ExpressionAttributeNames: {
             '#availableQuantity': 'availableQuantity',
             '#reservedQuantity': 'reservedQuantity',
@@ -303,8 +298,12 @@ export class InventoryService {
           },
         }),
       )
+      this.logger.log(`Reserved quantity=${quantity} for product ${productId}.`)
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
+        this.logger.warn(
+          `Reserve rejected for product ${productId} with quantity=${quantity} due to insufficient inventory.`,
+        )
         throw new ConflictException(`Insufficient inventory for product ${productId}.`)
       }
       throw error

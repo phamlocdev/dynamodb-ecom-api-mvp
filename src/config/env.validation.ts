@@ -46,7 +46,7 @@ const runtimeEnvSchema = z.object({
   COGNITO_CLIENT_ID: optionalTrimmedString,
   COGNITO_DEFAULT_GROUP: trimmedString.default('customer'),
   CLIENT_COGNITO_CALLBACK_URLS: trimmedString.default(
-    'http://localhost:3000/auth/hosted-ui/callback',
+    'http://localhost:3000/auth/callback',
   ),
   CLIENT_COGNITO_LOGOUT_URLS: trimmedString.default('http://localhost:3000/auth/login'),
   CLIENT_CORS_ORIGINS: trimmedString.default('http://localhost:3000'),
