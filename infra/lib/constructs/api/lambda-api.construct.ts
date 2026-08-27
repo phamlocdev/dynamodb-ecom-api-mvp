@@ -94,5 +94,18 @@ export class LambdaApiConstruct extends Construct {
         resources: [props.ordersTable.tableArn, props.inventoryTable.tableArn],
       }),
     )
+
+    this.apiHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'cognito-idp:AdminGetUser',
+          'cognito-idp:AdminListGroupsForUser',
+          'cognito-idp:ListUsers',
+        ],
+        resources: [
+          `arn:${cdk.Stack.of(this).partition}:cognito-idp:${cdk.Stack.of(this).region}:${cdk.Stack.of(this).account}:userpool/${props.userPoolId}`,
+        ],
+      }),
+    )
   }
 }

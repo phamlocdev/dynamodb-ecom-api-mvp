@@ -278,9 +278,12 @@ export class InventoryService {
     const inventoryRecord = await this.ensureInventoryRecord(productId)
 
     try {
-      // if (inventoryRecord.availableQuantity < quantity) {
-      //   throw new ConflictException(`Insufficient inventory for product ${productId}.`)
-      // }
+      if (inventoryRecord.availableQuantity < quantity) {
+        throw new ConflictException(`Insufficient inventory for product ${productId}.`)
+      }
+
+      // Simulate a delay to test overselling scenarios
+      await new Promise((resolve) => setTimeout(resolve, 3000))
 
       await this.dynamoDbService.documentClient.send(
         new UpdateCommand({
@@ -288,7 +291,7 @@ export class InventoryService {
           Key: { productId },
           UpdateExpression:
             'SET #availableQuantity = #availableQuantity - :quantity, #reservedQuantity = #reservedQuantity + :quantity, #updatedAt = :updatedAt',
-          ConditionExpression: '#availableQuantity >= :quantity',
+          // ConditionExpression: '#availableQuantity >= :quantity',
           ExpressionAttributeNames: {
             '#availableQuantity': 'availableQuantity',
             '#reservedQuantity': 'reservedQuantity',

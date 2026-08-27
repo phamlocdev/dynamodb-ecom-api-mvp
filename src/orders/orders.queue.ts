@@ -25,7 +25,8 @@ export class OrdersQueueService {
       new SendMessageCommand({
         QueueUrl: this.placeOrderQueueUrl,
         MessageBody: JSON.stringify(message),
-        MessageGroupId: message.customerId,
+        // MessageGroupId: message.customerId,
+        MessageGroupId: 'ORDER',
         MessageDeduplicationId: message.deduplicationKey,
       }),
     )
