@@ -50,3 +50,25 @@ export function removeGeneratedSourceArtifacts(): string[] {
       : 'find src \\( -name "*.js" -o -name "*.js.map" -o -name "*.d.ts" \\) -delete',
   ]
 }
+
+export function copyDirectoryIntoBundle(
+  inputDir: string,
+  outputDir: string,
+  sourceRelativePath: string,
+  destinationRelativePath: string,
+): string[] {
+  const copyScript = [
+    "const fs=require('fs')",
+    "const path=require('path')",
+    'const src=process.argv[1]',
+    'const dest=process.argv[2]',
+    'if(!fs.existsSync(src)){process.exit(0)}',
+    'fs.mkdirSync(path.dirname(dest),{recursive:true})',
+    'fs.cpSync(src,dest,{recursive:true})',
+  ].join(';')
+
+  const sourcePath = path.join(inputDir, sourceRelativePath)
+  const destinationPath = path.join(outputDir, destinationRelativePath)
+
+  return [`node -e ${JSON.stringify(copyScript)} ${JSON.stringify(sourcePath)} ${JSON.stringify(destinationPath)}`]
+}

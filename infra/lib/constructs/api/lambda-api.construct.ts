@@ -8,6 +8,7 @@ import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
 import {
+  copyDirectoryIntoBundle,
   createNodejsBundling,
   removeGeneratedSourceArtifacts,
   sourceEntryPath,
@@ -42,7 +43,10 @@ export class LambdaApiConstruct extends Construct {
       timeout: cdk.Duration.seconds(30),
       memorySize: 512,
       bundling: createNodejsBundling({
-        afterBundling: () => removeGeneratedSourceArtifacts(),
+        afterBundling: (inputDir, outputDir) => [
+          ...removeGeneratedSourceArtifacts(),
+          ...copyDirectoryIntoBundle(inputDir, outputDir, 'src/mail/templates', 'templates'),
+        ],
       }),
       environment: {
         PRODUCTS_TABLE: props.productsTable.tableName,
@@ -69,6 +73,10 @@ export class LambdaApiConstruct extends Construct {
         VNPAY_LOCALE: infraEnv.vnpayLocale,
         VNPAY_ORDER_TYPE: infraEnv.vnpayOrderType,
         VNPAY_API_IP_ADDR: infraEnv.vnpayApiIpAddr,
+        SES_ENABLED: String(infraEnv.sesEnabled),
+        SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
+        SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
+        SES_ORDER_CONFIRMATION_SUBJECT: infraEnv.sesOrderConfirmationSubject,
       },
     })
 

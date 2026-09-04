@@ -39,6 +39,8 @@ export class ServerStack extends cdk.Stack {
       mediaBucket: storage.mediaBucket,
     })
 
+    const notification = new SesConstruct(this, 'Notification')
+
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
       productsTable: data.productsTable,
       categoriesTable: data.categoriesTable,
@@ -53,6 +55,7 @@ export class ServerStack extends cdk.Stack {
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
+    notification.grantSendEmail(apiLambda.apiHandler)
 
     new OrdersWorkersConstruct(this, 'OrdersWorkers', {
       productsTable: data.productsTable,
@@ -72,8 +75,6 @@ export class ServerStack extends cdk.Stack {
       userPoolClientId: auth.userPoolClient.userPoolClientId,
       clientOrigins: env.clientOrigins,
     })
-
-    new SesConstruct(this, 'Notification')
 
     new cdk.CfnOutput(this, 'ProductsTableName', { value: data.productsTable.tableName })
 
