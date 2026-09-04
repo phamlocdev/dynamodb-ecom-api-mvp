@@ -1,3 +1,4 @@
+import * as iam from 'aws-cdk-lib/aws-iam'
 import { Construct } from 'constructs'
 
 export interface SesConstructProps {
@@ -7,5 +8,13 @@ export interface SesConstructProps {
 export class SesConstruct extends Construct {
   constructor(scope: Construct, id: string, _props: SesConstructProps = {}) {
     super(scope, id)
+  }
+
+  grantSendEmail(grantee: iam.IGrantable) {
+    return iam.Grant.addToPrincipal({
+      grantee,
+      actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+      resourceArns: ['*'],
+    })
   }
 }

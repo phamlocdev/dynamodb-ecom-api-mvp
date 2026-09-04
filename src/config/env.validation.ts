@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 const trimmedString = z.string().trim().min(1)
+const emailString = z.string().trim().email()
 const optionalTrimmedString = z.preprocess((value) => {
   if (typeof value !== 'string') {
     return value
@@ -8,8 +9,35 @@ const optionalTrimmedString = z.preprocess((value) => {
 
   return value.trim() || undefined
 }, z.string().min(1).optional())
+const optionalEmailString = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  return value.trim() || undefined
+}, z.string().email().optional())
 const urlString = z.string().trim().url()
 const positiveIntegerFromEnv = z.coerce.number().int().positive()
+const booleanFromEnv = z.preprocess((value) => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  const normalizedValue = value.trim().toLowerCase()
+  if (normalizedValue === 'true') {
+    return true
+  }
+
+  if (normalizedValue === 'false') {
+    return false
+  }
+
+  return value
+}, z.boolean())
 const ipv4AddressString = z
   .string()
   .trim()
@@ -26,6 +54,22 @@ function splitCsv(value: string | undefined, fallback: string[]): string[] {
 
   return items.length > 0 ? items : fallback
 }
+
+function splitCsvEmails(value: string | undefined): string[] {
+  return splitCsv(value, []).map((email) => emailString.parse(email))
+}
+
+const csvEmailArrayFromEnv = z.preprocess((value) => {
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (typeof value !== 'string') {
+    return []
+  }
+
+  return splitCsvEmails(value)
+}, z.array(z.string().email()))
 
 const runtimeEnvSchema = z.object({
   PORT: positiveIntegerFromEnv.default(8000),
@@ -45,9 +89,7 @@ const runtimeEnvSchema = z.object({
   COGNITO_USER_POOL_ID: optionalTrimmedString,
   COGNITO_CLIENT_ID: optionalTrimmedString,
   COGNITO_DEFAULT_GROUP: trimmedString.default('customer'),
-  CLIENT_COGNITO_CALLBACK_URLS: trimmedString.default(
-    'http://localhost:3000/auth/callback',
-  ),
+  CLIENT_COGNITO_CALLBACK_URLS: trimmedString.default('http://localhost:3000/auth/callback'),
   CLIENT_COGNITO_LOGOUT_URLS: trimmedString.default('http://localhost:3000/auth/login'),
   CLIENT_CORS_ORIGINS: trimmedString.default('http://localhost:3000'),
   COGNITO_DOMAIN_PREFIX: trimmedString.default('ecommerce-dev'),
@@ -56,7 +98,7 @@ const runtimeEnvSchema = z.object({
   MEDIA_READ_URL_TTL_SECONDS: positiveIntegerFromEnv.default(900),
   UPLOAD_MAX_FILE_SIZE_BYTES: positiveIntegerFromEnv.default(5242880),
   ORDERS_ENTITY_TYPE: trimmedString.default('ORDER'),
-  PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: positiveIntegerFromEnv.default(60),
+  PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: positiveIntegerFromEnv.default(120),
   RESERVATION_EXPIRY_POLLER_SCHEDULE_MINUTES: positiveIntegerFromEnv.default(1),
   PLACE_ORDER_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
   GOOGLE_CLIENT_ID: optionalTrimmedString,
@@ -73,6 +115,10 @@ const runtimeEnvSchema = z.object({
   VNPAY_LOCALE: z.enum(['vn', 'en']).default('vn'),
   VNPAY_ORDER_TYPE: trimmedString.default('other'),
   VNPAY_API_IP_ADDR: ipv4AddressString.default('127.0.0.1'),
+  SES_ENABLED: booleanFromEnv.default(false),
+  SES_FROM_EMAIL: optionalEmailString,
+  SES_VERIFIED_RECIPIENTS: csvEmailArrayFromEnv,
+  SES_ORDER_CONFIRMATION_SUBJECT: trimmedString.default('Xac nhan don hang cua ban'),
 })
 
 const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
@@ -118,6 +164,10 @@ const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
     vnpayLocale: environment.VNPAY_LOCALE,
     vnpayOrderType: environment.VNPAY_ORDER_TYPE,
     vnpayApiIpAddr: environment.VNPAY_API_IP_ADDR,
+    sesEnabled: environment.SES_ENABLED,
+    sesFromEmail: environment.SES_FROM_EMAIL,
+    sesVerifiedRecipients: environment.SES_VERIFIED_RECIPIENTS,
+    sesOrderConfirmationSubject: environment.SES_ORDER_CONFIRMATION_SUBJECT,
   }
 })
 

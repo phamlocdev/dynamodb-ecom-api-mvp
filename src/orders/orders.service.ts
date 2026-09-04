@@ -23,6 +23,7 @@ import { CartStatus } from '../carts/cart-status.enum'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
+import { SesMailService } from '../mail/ses-mail.service'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
 import { Product } from '../products/product.types'
@@ -58,6 +59,10 @@ const VNPAY_PAYMENT_EXPIRY_SKEW_SECONDS = 5
 const AUTO_REFUND_CREATE_BY = 'system-auto-refund'
 const AUTO_REFUND_REASON =
   'Payment arrived after reservation expiry. Amount refunded automatically.'
+const ORDER_CONFIRMATION_EMAIL_PENDING = 'PENDING'
+const ORDER_CONFIRMATION_EMAIL_SENT = 'SENT'
+const ORDER_CONFIRMATION_EMAIL_SKIPPED = 'SKIPPED'
+const ORDER_CONFIRMATION_EMAIL_FAILED = 'FAILED'
 
 @Injectable()
 export class OrdersService {
@@ -78,6 +83,8 @@ export class OrdersService {
     private readonly productsService: ProductsService,
     @Inject(UsersService)
     private readonly usersService: UsersService,
+    @Inject(SesMailService)
+    private readonly sesMailService: SesMailService,
     @Inject(OrdersQueueService)
     private readonly ordersQueueService: OrdersQueueService,
     @Inject(VnpayService)
@@ -453,6 +460,7 @@ export class OrdersService {
     }
 
     if (order.status === OrderStatus.CONFIRMED || order.paymentStatus === PaymentStatus.PAID) {
+      await this.sendOrderConfirmationEmailBestEffort(order)
       return InpOrderAlreadyConfirmed
     }
 
@@ -490,6 +498,7 @@ export class OrdersService {
 
     try {
       await this.markPaymentSucceeded(orderId, order.paymentAttemptId, transactionId)
+      await this.sendOrderConfirmationEmailBestEffortByOrderId(orderId)
       this.logger.log(`VNPay ${source} confirmed payment for order ${orderId}.`)
       return IpnSuccess
     } catch (error) {
@@ -499,6 +508,7 @@ export class OrdersService {
           latestOrder.status === OrderStatus.CONFIRMED ||
           latestOrder.paymentStatus === PaymentStatus.PAID
         ) {
+          await this.sendOrderConfirmationEmailBestEffort(latestOrder)
           return InpOrderAlreadyConfirmed
         }
         if (this.isPaymentExpired(latestOrder) || latestOrder.status === OrderStatus.EXPIRED) {
@@ -854,6 +864,145 @@ export class OrdersService {
     await this.expireReservationAndReleaseInventoryIfUnpaid(
       order,
       items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    )
+  }
+
+  private async sendOrderConfirmationEmailBestEffortByOrderId(orderId: string): Promise<void> {
+    const order = await this.getById(orderId)
+    await this.sendOrderConfirmationEmailBestEffort(order)
+  }
+
+  private async sendOrderConfirmationEmailBestEffort(order: Order): Promise<void> {
+    if (order.status !== OrderStatus.CONFIRMED || order.paymentStatus !== PaymentStatus.PAID) {
+      return
+    }
+
+    const claimed = await this.claimOrderConfirmationEmailAttempt(order.orderId)
+    if (!claimed) {
+      return
+    }
+
+    try {
+      const items = await this.findOrderItems(order.orderId)
+      const result = await this.sesMailService.sendOrderConfirmationEmail({ order, items })
+      await this.persistOrderConfirmationEmailResult(order.orderId, result)
+
+      if (result.status === ORDER_CONFIRMATION_EMAIL_SKIPPED) {
+        this.logger.warn(
+          `Skipped order confirmation email for order ${order.orderId}: ${result.reason ?? 'unknown-reason'}.`,
+        )
+      }
+
+      if (result.status === ORDER_CONFIRMATION_EMAIL_SENT) {
+        this.logger.log(`Order confirmation email sent for order ${order.orderId}.`)
+      }
+    } catch (error) {
+      const failureReason =
+        error instanceof Error ? error.message : 'order-confirmation-email-failed'
+
+      await this.persistOrderConfirmationEmailResult(order.orderId, {
+        status: ORDER_CONFIRMATION_EMAIL_FAILED,
+        reason: failureReason,
+      })
+
+      this.logger.error(
+        `Unexpected failure while processing order confirmation email for ${order.orderId}.`,
+        error,
+      )
+    }
+  }
+
+  private async claimOrderConfirmationEmailAttempt(orderId: string): Promise<boolean> {
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.ordersTableName,
+          Key: { orderId },
+          UpdateExpression:
+            'SET #confirmationEmailStatus = :pending, #updatedAt = :updatedAt REMOVE #confirmationEmailFailureReason, #confirmationEmailMessageId, #confirmationEmailSentAt',
+          ConditionExpression:
+            'attribute_not_exists(#confirmationEmailStatus) OR #confirmationEmailStatus = :failed',
+          ExpressionAttributeNames: {
+            '#confirmationEmailStatus': 'confirmationEmailStatus',
+            '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
+            '#confirmationEmailMessageId': 'confirmationEmailMessageId',
+            '#confirmationEmailSentAt': 'confirmationEmailSentAt',
+            '#updatedAt': 'updatedAt',
+          },
+          ExpressionAttributeValues: {
+            ':pending': ORDER_CONFIRMATION_EMAIL_PENDING,
+            ':failed': ORDER_CONFIRMATION_EMAIL_FAILED,
+            ':updatedAt': new Date().toISOString(),
+          },
+        }),
+      )
+
+      return true
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) {
+        return false
+      }
+
+      throw error
+    }
+  }
+
+  private async persistOrderConfirmationEmailResult(
+    orderId: string,
+    result: {
+      status: 'SENT' | 'SKIPPED' | 'FAILED'
+      messageId?: string
+      reason?: string
+    },
+  ): Promise<void> {
+    const timestamp = new Date().toISOString()
+
+    if (result.status === ORDER_CONFIRMATION_EMAIL_SENT) {
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.ordersTableName,
+          Key: { orderId },
+          UpdateExpression:
+            'SET #confirmationEmailStatus = :status, #confirmationEmailSentAt = :sentAt, #updatedAt = :updatedAt' +
+            (result.messageId ? ', #confirmationEmailMessageId = :messageId' : '') +
+            ' REMOVE #confirmationEmailFailureReason',
+          ExpressionAttributeNames: {
+            '#confirmationEmailStatus': 'confirmationEmailStatus',
+            '#confirmationEmailSentAt': 'confirmationEmailSentAt',
+            '#confirmationEmailMessageId': 'confirmationEmailMessageId',
+            '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
+            '#updatedAt': 'updatedAt',
+          },
+          ExpressionAttributeValues: {
+            ':status': ORDER_CONFIRMATION_EMAIL_SENT,
+            ':sentAt': timestamp,
+            ':updatedAt': timestamp,
+            ...(result.messageId ? { ':messageId': result.messageId } : {}),
+          },
+        }),
+      )
+      return
+    }
+
+    await this.dynamoDbService.documentClient.send(
+      new UpdateCommand({
+        TableName: this.ordersTableName,
+        Key: { orderId },
+        UpdateExpression:
+          'SET #confirmationEmailStatus = :status, #confirmationEmailFailureReason = :reason, #updatedAt = :updatedAt REMOVE #confirmationEmailMessageId, #confirmationEmailSentAt',
+        ExpressionAttributeNames: {
+          '#confirmationEmailStatus': 'confirmationEmailStatus',
+          '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
+          '#confirmationEmailMessageId': 'confirmationEmailMessageId',
+          '#confirmationEmailSentAt': 'confirmationEmailSentAt',
+          '#updatedAt': 'updatedAt',
+        },
+        ExpressionAttributeValues: {
+          ':status': result.status,
+          ':reason': result.reason ?? 'unknown-email-delivery-result',
+          ':updatedAt': timestamp,
+        },
+      }),
     )
   }
 

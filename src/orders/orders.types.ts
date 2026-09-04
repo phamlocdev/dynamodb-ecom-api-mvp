@@ -22,6 +22,10 @@ export interface Order {
   paymentExpiresAt?: number
   failureReason?: string
   totalAmount?: number
+  confirmationEmailStatus?: 'PENDING' | 'SENT' | 'SKIPPED' | 'FAILED'
+  confirmationEmailSentAt?: string
+  confirmationEmailMessageId?: string
+  confirmationEmailFailureReason?: string
 }
 
 export interface TriggerPaymentResult {
