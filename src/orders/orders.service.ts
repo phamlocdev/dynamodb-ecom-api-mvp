@@ -23,6 +23,7 @@ import { CartStatus } from '../carts/cart-status.enum'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
+import { EmailTrackingService } from '../mail/email-tracking.service'
 import { SesMailService } from '../mail/ses-mail.service'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
@@ -59,10 +60,8 @@ const VNPAY_PAYMENT_EXPIRY_SKEW_SECONDS = 5
 const AUTO_REFUND_CREATE_BY = 'system-auto-refund'
 const AUTO_REFUND_REASON =
   'Payment arrived after reservation expiry. Amount refunded automatically.'
-const ORDER_CONFIRMATION_EMAIL_PENDING = 'PENDING'
 const ORDER_CONFIRMATION_EMAIL_SENT = 'SENT'
 const ORDER_CONFIRMATION_EMAIL_SKIPPED = 'SKIPPED'
-const ORDER_CONFIRMATION_EMAIL_FAILED = 'FAILED'
 
 @Injectable()
 export class OrdersService {
@@ -83,6 +82,8 @@ export class OrdersService {
     private readonly productsService: ProductsService,
     @Inject(UsersService)
     private readonly usersService: UsersService,
+    @Inject(EmailTrackingService)
+    private readonly emailTrackingService: EmailTrackingService,
     @Inject(SesMailService)
     private readonly sesMailService: SesMailService,
     @Inject(OrdersQueueService)
@@ -117,6 +118,7 @@ export class OrdersService {
       customerId: user.sub,
       customerEmail: user.email ?? profile.email,
       customerName: user.name ?? profile.name,
+      additionalReceivingEmails: normalizeAdditionalReceivingEmails(dto.additionalReceivingEmails),
       cartId: dto.cartId,
       status: OrderStatus.PENDING,
       entityType: ORDERS_ENTITY_TYPE,
@@ -877,15 +879,16 @@ export class OrdersService {
       return
     }
 
-    const claimed = await this.claimOrderConfirmationEmailAttempt(order.orderId)
-    if (!claimed) {
+    const hasActiveTracking = await this.emailTrackingService.hasActiveOrderConfirmationTracking(
+      order.orderId,
+    )
+    if (hasActiveTracking) {
       return
     }
 
     try {
       const items = await this.findOrderItems(order.orderId)
       const result = await this.sesMailService.sendOrderConfirmationEmail({ order, items })
-      await this.persistOrderConfirmationEmailResult(order.orderId, result)
 
       if (result.status === ORDER_CONFIRMATION_EMAIL_SKIPPED) {
         this.logger.warn(
@@ -897,113 +900,11 @@ export class OrdersService {
         this.logger.log(`Order confirmation email sent for order ${order.orderId}.`)
       }
     } catch (error) {
-      const failureReason =
-        error instanceof Error ? error.message : 'order-confirmation-email-failed'
-
-      await this.persistOrderConfirmationEmailResult(order.orderId, {
-        status: ORDER_CONFIRMATION_EMAIL_FAILED,
-        reason: failureReason,
-      })
-
       this.logger.error(
         `Unexpected failure while processing order confirmation email for ${order.orderId}.`,
         error,
       )
     }
-  }
-
-  private async claimOrderConfirmationEmailAttempt(orderId: string): Promise<boolean> {
-    try {
-      await this.dynamoDbService.documentClient.send(
-        new UpdateCommand({
-          TableName: this.ordersTableName,
-          Key: { orderId },
-          UpdateExpression:
-            'SET #confirmationEmailStatus = :pending, #updatedAt = :updatedAt REMOVE #confirmationEmailFailureReason, #confirmationEmailMessageId, #confirmationEmailSentAt',
-          ConditionExpression:
-            'attribute_not_exists(#confirmationEmailStatus) OR #confirmationEmailStatus = :failed',
-          ExpressionAttributeNames: {
-            '#confirmationEmailStatus': 'confirmationEmailStatus',
-            '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
-            '#confirmationEmailMessageId': 'confirmationEmailMessageId',
-            '#confirmationEmailSentAt': 'confirmationEmailSentAt',
-            '#updatedAt': 'updatedAt',
-          },
-          ExpressionAttributeValues: {
-            ':pending': ORDER_CONFIRMATION_EMAIL_PENDING,
-            ':failed': ORDER_CONFIRMATION_EMAIL_FAILED,
-            ':updatedAt': new Date().toISOString(),
-          },
-        }),
-      )
-
-      return true
-    } catch (error) {
-      if (isConditionalCheckFailure(error)) {
-        return false
-      }
-
-      throw error
-    }
-  }
-
-  private async persistOrderConfirmationEmailResult(
-    orderId: string,
-    result: {
-      status: 'SENT' | 'SKIPPED' | 'FAILED'
-      messageId?: string
-      reason?: string
-    },
-  ): Promise<void> {
-    const timestamp = new Date().toISOString()
-
-    if (result.status === ORDER_CONFIRMATION_EMAIL_SENT) {
-      await this.dynamoDbService.documentClient.send(
-        new UpdateCommand({
-          TableName: this.ordersTableName,
-          Key: { orderId },
-          UpdateExpression:
-            'SET #confirmationEmailStatus = :status, #confirmationEmailSentAt = :sentAt, #updatedAt = :updatedAt' +
-            (result.messageId ? ', #confirmationEmailMessageId = :messageId' : '') +
-            ' REMOVE #confirmationEmailFailureReason',
-          ExpressionAttributeNames: {
-            '#confirmationEmailStatus': 'confirmationEmailStatus',
-            '#confirmationEmailSentAt': 'confirmationEmailSentAt',
-            '#confirmationEmailMessageId': 'confirmationEmailMessageId',
-            '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
-            '#updatedAt': 'updatedAt',
-          },
-          ExpressionAttributeValues: {
-            ':status': ORDER_CONFIRMATION_EMAIL_SENT,
-            ':sentAt': timestamp,
-            ':updatedAt': timestamp,
-            ...(result.messageId ? { ':messageId': result.messageId } : {}),
-          },
-        }),
-      )
-      return
-    }
-
-    await this.dynamoDbService.documentClient.send(
-      new UpdateCommand({
-        TableName: this.ordersTableName,
-        Key: { orderId },
-        UpdateExpression:
-          'SET #confirmationEmailStatus = :status, #confirmationEmailFailureReason = :reason, #updatedAt = :updatedAt REMOVE #confirmationEmailMessageId, #confirmationEmailSentAt',
-        ExpressionAttributeNames: {
-          '#confirmationEmailStatus': 'confirmationEmailStatus',
-          '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
-          '#confirmationEmailMessageId': 'confirmationEmailMessageId',
-          '#confirmationEmailSentAt': 'confirmationEmailSentAt',
-          '#updatedAt': 'updatedAt',
-        },
-        ExpressionAttributeValues: {
-          ':status': result.status,
-          ':reason': result.reason ?? 'unknown-email-delivery-result',
-          ':updatedAt': timestamp,
-        },
-      }),
-    )
   }
 
   private async handleFailedIpn(order: Order, failureReason: string): Promise<IpnResponse> {
@@ -1101,6 +1002,22 @@ export class OrdersService {
 
 function toEpochSeconds(timestampMs: number): number {
   return Math.floor(timestampMs / 1000)
+}
+
+function normalizeAdditionalReceivingEmails(emails: string[] | undefined): string[] | undefined {
+  if (!emails) {
+    return undefined
+  }
+
+  const normalizedEmails = Array.from(
+    new Set(
+      emails
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.length > 0),
+    ),
+  )
+
+  return normalizedEmails.length > 0 ? normalizedEmails : undefined
 }
 
 function buildPaymentOrderInfo(orderId: string): string {

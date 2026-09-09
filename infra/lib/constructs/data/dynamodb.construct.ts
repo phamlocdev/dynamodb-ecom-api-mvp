@@ -10,6 +10,7 @@ export class DynamoDbConstruct extends Construct {
   readonly cartItemsTable: dynamodb.Table
   readonly ordersTable: dynamodb.Table
   readonly orderItemsTable: dynamodb.Table
+  readonly emailTrackingTable: dynamodb.Table
   readonly inventoryTable: dynamodb.Table
   readonly userProfilesTable: dynamodb.Table
 
@@ -21,14 +22,14 @@ export class DynamoDbConstruct extends Construct {
       tableName: infraEnv.productsTableName,
       partitionKey: { name: 'productId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     this.categoriesTable = new dynamodb.Table(this, 'CategoriesTable', {
       tableName: infraEnv.categoriesTableName,
       partitionKey: { name: 'categoryId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     this.cartsTable = new dynamodb.Table(this, 'CartsTable', {
@@ -37,7 +38,7 @@ export class DynamoDbConstruct extends Construct {
       sortKey: { name: 'cartId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'expiresAt',
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     this.cartItemsTable = new dynamodb.Table(this, 'CartItemsTable', {
@@ -45,14 +46,14 @@ export class DynamoDbConstruct extends Construct {
       partitionKey: { name: 'cartId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'productId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     this.ordersTable = new dynamodb.Table(this, 'OrdersTable', {
       tableName: infraEnv.ordersTableName,
       partitionKey: { name: 'orderId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
     this.ordersTable.addGlobalSecondaryIndex({
       indexName: 'GSI_OrderStatusCreatedAt',
@@ -85,21 +86,33 @@ export class DynamoDbConstruct extends Construct {
       partitionKey: { name: 'orderId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'lineId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.emailTrackingTable = new dynamodb.Table(this, 'EmailTrackingTable', {
+      tableName: infraEnv.emailTrackingTableName,
+      partitionKey: { name: 'emailId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+    this.emailTrackingTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_SesMessageRecipient',
+      partitionKey: { name: 'sesMessageId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'recipientEmail', type: dynamodb.AttributeType.STRING },
     })
 
     this.inventoryTable = new dynamodb.Table(this, 'InventoryTable', {
       tableName: infraEnv.inventoryTableName,
       partitionKey: { name: 'productId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     this.userProfilesTable = new dynamodb.Table(this, 'UserProfilesTable', {
       tableName: infraEnv.userProfilesTableName,
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     new cdk.CfnOutput(this, 'OrdersEntityType', {

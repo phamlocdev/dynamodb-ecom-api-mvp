@@ -39,7 +39,9 @@ export class ServerStack extends cdk.Stack {
       mediaBucket: storage.mediaBucket,
     })
 
-    const notification = new SesConstruct(this, 'Notification')
+    const notification = new SesConstruct(this, 'Notification', {
+      emailTrackingTable: data.emailTrackingTable,
+    })
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
       productsTable: data.productsTable,
@@ -48,6 +50,7 @@ export class ServerStack extends cdk.Stack {
       cartItemsTable: data.cartItemsTable,
       ordersTable: data.ordersTable,
       orderItemsTable: data.orderItemsTable,
+      emailTrackingTable: data.emailTrackingTable,
       inventoryTable: data.inventoryTable,
       userProfilesTable: data.userProfilesTable,
       mediaBucket: storage.mediaBucket,
@@ -79,6 +82,10 @@ export class ServerStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ProductsTableName', { value: data.productsTable.tableName })
 
     new cdk.CfnOutput(this, 'OrdersTableName', { value: data.ordersTable.tableName })
+
+    new cdk.CfnOutput(this, 'EmailTrackingTableName', {
+      value: data.emailTrackingTable.tableName,
+    })
 
     new cdk.CfnOutput(this, 'CognitoUserPoolId', {
       value: auth.userPool.userPoolId,

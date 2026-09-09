@@ -21,6 +21,7 @@ export interface LambdaApiConstructProps {
   cartItemsTable: dynamodb.ITable
   ordersTable: dynamodb.ITable
   orderItemsTable: dynamodb.ITable
+  emailTrackingTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   userProfilesTable: dynamodb.ITable
   mediaBucket: s3.IBucket
@@ -55,6 +56,7 @@ export class LambdaApiConstruct extends Construct {
         CART_ITEMS_TABLE: props.cartItemsTable.tableName,
         ORDERS_TABLE: props.ordersTable.tableName,
         ORDER_ITEMS_TABLE: props.orderItemsTable.tableName,
+        EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
         INVENTORY_TABLE: props.inventoryTable.tableName,
         USER_PROFILES_TABLE: props.userProfilesTable.tableName,
         MEDIA_BUCKET_NAME: props.mediaBucket.bucketName,
@@ -76,6 +78,7 @@ export class LambdaApiConstruct extends Construct {
         SES_ENABLED: String(infraEnv.sesEnabled),
         SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
         SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
+        SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
         SES_ORDER_CONFIRMATION_SUBJECT: infraEnv.sesOrderConfirmationSubject,
       },
     })
@@ -86,6 +89,7 @@ export class LambdaApiConstruct extends Construct {
     props.cartItemsTable.grantReadWriteData(this.apiHandler)
     props.ordersTable.grantReadWriteData(this.apiHandler)
     props.orderItemsTable.grantReadWriteData(this.apiHandler)
+    props.emailTrackingTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.userProfilesTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
