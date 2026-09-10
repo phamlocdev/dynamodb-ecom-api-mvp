@@ -1,5 +1,6 @@
 import { OrderStatus } from './order-status.enum'
 import { PaymentStatus } from './payment-status.enum'
+import type { EmailType } from '../mail/mail.types'
 
 export interface Order {
   orderId: string
@@ -19,6 +20,7 @@ export interface Order {
   paymentFailureReason?: string
   createdAt: string
   updatedAt: string
+  shippedAt?: string
   reservedAt?: string
   paymentExpiresAt?: number
   failureReason?: string
@@ -58,4 +60,13 @@ export interface PlaceOrderMessage {
   cartId: string
   deduplicationKey: string
   requestedAt: string
+}
+
+export interface ResendOrderEmailResult {
+  orderId: string
+  emailType: EmailType
+  recipientEmails: string[]
+  resentCount: number
+  status: string
+  reason?: string
 }

@@ -1,3 +1,5 @@
+import { EmailDeliverySummary, EmailType } from '../mail/mail.types'
+
 export type ManagedUser = {
   username: string
   enabled: boolean
@@ -9,6 +11,7 @@ export type ManagedUser = {
   groups: string[]
   createdAt?: string
   updatedAt?: string
+  welcomeEmailTracking?: EmailDeliverySummary
 }
 
 export interface CustomerProfile {
@@ -28,4 +31,13 @@ export interface UserProfile {
   avatarReadUrlExpiresInSeconds?: number
   createdAt: string
   updatedAt: string
+}
+
+export interface ResendUserEmailResult {
+  userId: string
+  emailType: EmailType
+  recipientEmails: string[]
+  resentCount: number
+  status: string
+  reason?: string
 }

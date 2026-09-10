@@ -35,6 +35,9 @@ export class OrderResponseDto {
   updatedAt!: string
 
   @ApiPropertyOptional()
+  shippedAt?: string
+
+  @ApiPropertyOptional()
   reservedAt?: string
 
   @ApiPropertyOptional()

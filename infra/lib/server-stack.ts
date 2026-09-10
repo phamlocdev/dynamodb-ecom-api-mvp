@@ -28,6 +28,7 @@ export class ServerStack extends cdk.Stack {
       hostedUiDomainPrefix: env.hostedUiDomainPrefix,
       googleClientId: env.googleClientId,
       googleClientSecret: env.googleClientSecret,
+      emailTrackingTable: data.emailTrackingTable,
     })
 
     const storage = new S3Construct(this, 'Storage', {
@@ -42,6 +43,7 @@ export class ServerStack extends cdk.Stack {
     const notification = new SesConstruct(this, 'Notification', {
       emailTrackingTable: data.emailTrackingTable,
     })
+    notification.grantSendEmail(auth.postConfirmationHandler)
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
       productsTable: data.productsTable,

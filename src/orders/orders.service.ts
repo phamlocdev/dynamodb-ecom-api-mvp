@@ -25,6 +25,7 @@ import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
 import { EmailTrackingService } from '../mail/email-tracking.service'
 import { SesMailService } from '../mail/ses-mail.service'
+import { EmailDeliveryStatistics, EmailTrackingView, EmailType } from '../mail/mail.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
 import { Product } from '../products/product.types'
@@ -40,6 +41,7 @@ import {
   Order,
   OrderDetails,
   OrderItem,
+  ResendOrderEmailResult,
   TriggerPaymentResult,
   VnpayReturnResult,
 } from './orders.types'
@@ -62,6 +64,7 @@ const AUTO_REFUND_REASON =
   'Payment arrived after reservation expiry. Amount refunded automatically.'
 const ORDER_CONFIRMATION_EMAIL_SENT = 'SENT'
 const ORDER_CONFIRMATION_EMAIL_SKIPPED = 'SKIPPED'
+const ORDER_EMAIL_TYPES: EmailType[] = ['ORDER_CONFIRMATION', 'SHIPPED_ORDER_NOTIFICATION']
 
 @Injectable()
 export class OrdersService {
@@ -291,6 +294,126 @@ export class OrdersService {
     }
 
     return response.Item as Order
+  }
+
+  async getEmailStatistics(): Promise<EmailDeliveryStatistics> {
+    return this.emailTrackingService.getStatistics(ORDER_EMAIL_TYPES)
+  }
+
+  async getEmailTracking(orderId: string): Promise<EmailTrackingView[]> {
+    await this.getById(orderId)
+    return this.emailTrackingService.findByContext('ORDER', orderId, ORDER_EMAIL_TYPES)
+  }
+
+  async resendFailedOrderEmail(
+    orderId: string,
+    emailType: EmailType,
+    recipientEmail: string,
+  ): Promise<ResendOrderEmailResult> {
+    if (emailType !== 'ORDER_CONFIRMATION' && emailType !== 'SHIPPED_ORDER_NOTIFICATION') {
+      throw new BadRequestException(`Email type ${emailType} is not supported for order resend.`)
+    }
+
+    const order = await this.getById(orderId)
+    const normalizedRecipientEmail = normalizeEmail(recipientEmail)
+    if (!normalizedRecipientEmail) {
+      throw new BadRequestException('recipientEmail is required.')
+    }
+
+    const retryableItem = await this.emailTrackingService.findLatestRetryableForRecipient({
+      contextType: 'ORDER',
+      contextId: orderId,
+      emailType,
+      recipientEmail: normalizedRecipientEmail,
+    })
+
+    if (!retryableItem) {
+      return {
+        orderId,
+        emailType,
+        recipientEmails: [],
+        resentCount: 0,
+        status: 'SKIPPED',
+        reason: 'no-retryable-recipients',
+      }
+    }
+
+    const items = await this.findOrderItems(orderId)
+    const recipientEmails = [normalizedRecipientEmail]
+    const result =
+      emailType === 'ORDER_CONFIRMATION'
+        ? await this.sesMailService.sendOrderConfirmationEmail({
+            order,
+            items,
+            recipientEmails,
+            resendOfEmailId: retryableItem.emailId,
+          })
+        : await this.sesMailService.sendShippedOrderNotificationEmail({
+            order,
+            items,
+            shippedAt: order.shippedAt ?? order.updatedAt,
+            recipientEmails,
+            resendOfEmailId: retryableItem.emailId,
+          })
+
+    return {
+      orderId,
+      emailType,
+      recipientEmails,
+      resentCount: recipientEmails.length,
+      status: result.status,
+      reason: result.reason,
+    }
+  }
+
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<Order> {
+    if (status !== OrderStatus.SHIPPED) {
+      throw new BadRequestException(`Only ${OrderStatus.SHIPPED} status updates are supported.`)
+    }
+
+    const order = await this.getById(orderId)
+    if (order.status === OrderStatus.SHIPPED) {
+      return order
+    }
+
+    if (order.status !== OrderStatus.CONFIRMED || order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Only paid confirmed orders can be marked as shipped.')
+    }
+
+    const shippedAt = new Date().toISOString()
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.ordersTableName,
+          Key: { orderId },
+          UpdateExpression:
+            'SET #status = :shipped, #shippedAt = :shippedAt, #updatedAt = :updatedAt',
+          ConditionExpression: '#status = :confirmed AND #paymentStatus = :paid',
+          ExpressionAttributeNames: {
+            '#status': 'status',
+            '#paymentStatus': 'paymentStatus',
+            '#shippedAt': 'shippedAt',
+            '#updatedAt': 'updatedAt',
+          },
+          ExpressionAttributeValues: {
+            ':confirmed': OrderStatus.CONFIRMED,
+            ':paid': PaymentStatus.PAID,
+            ':shipped': OrderStatus.SHIPPED,
+            ':shippedAt': shippedAt,
+            ':updatedAt': shippedAt,
+          },
+        }),
+      )
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) {
+        throw new ConflictException(`Order ${orderId} cannot be marked as shipped.`)
+      }
+      throw error
+    }
+
+    const updatedOrder = await this.getById(orderId)
+    await this.sendShippedOrderNotificationBestEffort(updatedOrder, shippedAt)
+    return updatedOrder
   }
 
   async triggerPayment(
@@ -907,6 +1030,48 @@ export class OrdersService {
     }
   }
 
+  private async sendShippedOrderNotificationBestEffort(
+    order: Order,
+    shippedAt: string,
+  ): Promise<void> {
+    if (order.status !== OrderStatus.SHIPPED || order.paymentStatus !== PaymentStatus.PAID) {
+      return
+    }
+
+    const hasActiveTracking = await this.emailTrackingService.hasActiveTracking({
+      contextType: 'ORDER',
+      contextId: order.orderId,
+      emailType: 'SHIPPED_ORDER_NOTIFICATION',
+    })
+    if (hasActiveTracking) {
+      return
+    }
+
+    try {
+      const items = await this.findOrderItems(order.orderId)
+      const result = await this.sesMailService.sendShippedOrderNotificationEmail({
+        order,
+        items,
+        shippedAt,
+      })
+
+      if (result.status === 'SKIPPED') {
+        this.logger.warn(
+          `Skipped shipped notification email for order ${order.orderId}: ${result.reason ?? 'unknown-reason'}.`,
+        )
+      }
+
+      if (result.status === 'SENT') {
+        this.logger.log(`Shipped notification email sent for order ${order.orderId}.`)
+      }
+    } catch (error) {
+      this.logger.error(
+        `Unexpected failure while processing shipped notification email for ${order.orderId}.`,
+        error,
+      )
+    }
+  }
+
   private async handleFailedIpn(order: Order, failureReason: string): Promise<IpnResponse> {
     if (order.status !== OrderStatus.RESERVED || order.paymentStatus !== PaymentStatus.PROCESSING) {
       return IpnSuccess
@@ -1010,14 +1175,15 @@ function normalizeAdditionalReceivingEmails(emails: string[] | undefined): strin
   }
 
   const normalizedEmails = Array.from(
-    new Set(
-      emails
-        .map((email) => email.trim().toLowerCase())
-        .filter((email) => email.length > 0),
-    ),
+    new Set(emails.map((email) => email.trim().toLowerCase()).filter((email) => email.length > 0)),
   )
 
   return normalizedEmails.length > 0 ? normalizedEmails : undefined
+}
+
+function normalizeEmail(email: string | undefined): string | undefined {
+  const normalizedEmail = email?.trim().toLowerCase()
+  return normalizedEmail || undefined
 }
 
 function buildPaymentOrderInfo(orderId: string): string {

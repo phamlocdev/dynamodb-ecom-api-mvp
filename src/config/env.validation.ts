@@ -120,7 +120,6 @@ const runtimeEnvSchema = z.object({
   SES_FROM_EMAIL: optionalEmailString,
   SES_VERIFIED_RECIPIENTS: csvEmailArrayFromEnv,
   SES_CONFIGURATION_SET_NAME: trimmedString.default('ecommerce-email-events'),
-  SES_ORDER_CONFIRMATION_SUBJECT: trimmedString.default('Xac nhan don hang cua ban'),
 })
 
 const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
@@ -171,7 +170,6 @@ const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
     sesFromEmail: environment.SES_FROM_EMAIL,
     sesVerifiedRecipients: environment.SES_VERIFIED_RECIPIENTS,
     sesConfigurationSetName: environment.SES_CONFIGURATION_SET_NAME,
-    sesOrderConfirmationSubject: environment.SES_ORDER_CONFIRMATION_SUBJECT,
   }
 })
 

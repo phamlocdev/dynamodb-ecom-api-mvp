@@ -73,6 +73,24 @@ export function registerApiRoutes(
     ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
+    path: '/users/email-statistics',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/{userId}/email-tracking',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/{userId}/emails/welcome-new-customer/resend-failed',
+    methods: [apigatewayv2.HttpMethod.POST],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
     path: '/users/me/profile',
     methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.PATCH],
     integration,
@@ -111,8 +129,32 @@ export function registerApiRoutes(
     ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
+    path: '/orders/email-statistics',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
     path: '/orders/{orderId}',
     methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/email-tracking',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/status',
+    methods: [apigatewayv2.HttpMethod.PATCH],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/emails/{emailType}/resend-failed',
+    methods: [apigatewayv2.HttpMethod.POST],
     integration,
     ...routeAuthOptions(authorizer),
   })

@@ -79,7 +79,6 @@ export class LambdaApiConstruct extends Construct {
         SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
         SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
         SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
-        SES_ORDER_CONFIRMATION_SUBJECT: infraEnv.sesOrderConfirmationSubject,
       },
     })
 

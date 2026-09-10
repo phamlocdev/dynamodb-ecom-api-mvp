@@ -5,9 +5,25 @@ import Handlebars from 'handlebars'
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { EmailTrackingService } from './email-tracking.service'
-import { OrderConfirmationEmailResult, SendOrderConfirmationEmailInput } from './mail.types'
+import {
+  EmailContextType,
+  EmailSendResult,
+  EmailType,
+  SendOrderConfirmationEmailInput,
+  SendShippedOrderNotificationEmailInput,
+  SendWelcomeNewCustomerEmailInput,
+} from './mail.types'
 
-const ORDER_CONFIRMATION_TEMPLATE_FILE = 'order-confirmation.hbs'
+const TEMPLATE_FILES: Record<EmailType, string> = {
+  ORDER_CONFIRMATION: 'order-confirmation.hbs',
+  WELCOME_NEW_CUSTOMER: 'welcome-new-customer.hbs',
+  SHIPPED_ORDER_NOTIFICATION: 'shipped-order-notification.hbs',
+}
+const EMAIL_SUBJECTS: Record<EmailType, string> = {
+  ORDER_CONFIRMATION: 'Xac nhan don hang cua ban',
+  WELCOME_NEW_CUSTOMER: 'Chao mung ban den voi DynamoDB MVP',
+  SHIPPED_ORDER_NOTIFICATION: 'Don hang cua ban da duoc van chuyen',
+}
 
 interface OrderConfirmationTemplateItemView {
   productName: string
@@ -25,18 +41,39 @@ interface OrderConfirmationTemplateView {
   items: OrderConfirmationTemplateItemView[]
 }
 
+interface ShippedOrderNotificationTemplateView {
+  customerName: string
+  orderId: string
+  shippedAt: string
+  totalAmount: string
+  items: OrderConfirmationTemplateItemView[]
+}
+
+interface WelcomeNewCustomerTemplateView {
+  customerName: string
+  username: string
+  email: string
+}
+
+type MailTemplateView =
+  | OrderConfirmationTemplateView
+  | ShippedOrderNotificationTemplateView
+  | WelcomeNewCustomerTemplateView
+
 @Injectable()
 export class SesMailService {
   private readonly logger = new Logger(SesMailService.name)
   private readonly sesClient: SESv2Client
   private readonly isEnabled: boolean
   private readonly fromEmail?: string
-  private readonly verifiedRecipients: Set<string>
   private readonly orderConfirmationSubject: string
+  private readonly welcomeNewCustomerSubject: string
+  private readonly shippedOrderNotificationSubject: string
   private readonly configurationSetName?: string
-  private orderConfirmationTemplatePromise?: Promise<
-    Handlebars.TemplateDelegate<OrderConfirmationTemplateView>
-  >
+  private readonly templatePromises = new Map<
+    EmailType,
+    Promise<Handlebars.TemplateDelegate<MailTemplateView>>
+  >()
 
   constructor(
     @Inject(ConfigService) configService: ConfigService,
@@ -51,77 +88,130 @@ export class SesMailService {
     this.sesClient = new SESv2Client({ region })
     this.isEnabled = configService.get<boolean>('SES_ENABLED') ?? false
     this.fromEmail = configService.get<string>('SES_FROM_EMAIL') ?? undefined
-    this.orderConfirmationSubject =
-      configService.get<string>('SES_ORDER_CONFIRMATION_SUBJECT') ?? 'Xac nhan don hang cua ban'
+    this.orderConfirmationSubject = EMAIL_SUBJECTS.ORDER_CONFIRMATION
+    this.welcomeNewCustomerSubject = EMAIL_SUBJECTS.WELCOME_NEW_CUSTOMER
+    this.shippedOrderNotificationSubject = EMAIL_SUBJECTS.SHIPPED_ORDER_NOTIFICATION
     this.configurationSetName = configService.get<string>('SES_CONFIGURATION_SET_NAME') ?? undefined
-    this.verifiedRecipients = new Set(
-      (configService.get<string[]>('SES_VERIFIED_RECIPIENTS') ?? []).map((email) =>
-        email.toLowerCase(),
-      ),
-    )
   }
 
   async sendOrderConfirmationEmail(
     input: SendOrderConfirmationEmailInput,
-  ): Promise<OrderConfirmationEmailResult> {
+  ): Promise<EmailSendResult> {
     const recipientEmails = resolveRecipientEmails(
       input.order.customerEmail,
       input.order.additionalReceivingEmails,
+      input.recipientEmails,
     )
 
+    return this.sendTemplatedEmail({
+      emailType: 'ORDER_CONFIRMATION',
+      contextType: 'ORDER',
+      contextId: input.order.orderId,
+      recipientEmails,
+      subject: this.orderConfirmationSubject,
+      templateView: buildOrderConfirmationTemplateView(input),
+      resendOfByRecipient: resolveResendOfByRecipient(input, recipientEmails),
+    })
+  }
+
+  async sendShippedOrderNotificationEmail(
+    input: SendShippedOrderNotificationEmailInput,
+  ): Promise<EmailSendResult> {
+    const recipientEmails = resolveRecipientEmails(
+      input.order.customerEmail,
+      input.order.additionalReceivingEmails,
+      input.recipientEmails,
+    )
+
+    return this.sendTemplatedEmail({
+      emailType: 'SHIPPED_ORDER_NOTIFICATION',
+      contextType: 'ORDER',
+      contextId: input.order.orderId,
+      recipientEmails,
+      subject: this.shippedOrderNotificationSubject,
+      templateView: buildShippedOrderNotificationTemplateView(input),
+      resendOfByRecipient: resolveResendOfByRecipient(input, recipientEmails),
+    })
+  }
+
+  async sendWelcomeNewCustomerEmail(
+    input: SendWelcomeNewCustomerEmailInput,
+  ): Promise<EmailSendResult> {
+    const contextId = input.user.sub ?? input.user.username
+    return this.sendTemplatedEmail({
+      emailType: 'WELCOME_NEW_CUSTOMER',
+      contextType: 'USER',
+      contextId,
+      recipientEmails: resolveRecipientEmails(input.user.email, undefined, input.recipientEmails),
+      subject: this.welcomeNewCustomerSubject,
+      templateView: buildWelcomeNewCustomerTemplateView(input),
+      resendOfByRecipient: input.resendOfByRecipient,
+    })
+  }
+
+  private async sendTemplatedEmail(input: {
+    emailType: EmailType
+    contextType: EmailContextType
+    contextId: string
+    recipientEmails: string[]
+    subject: string
+    templateView: MailTemplateView
+    resendOfByRecipient?: Record<string, string>
+  }): Promise<EmailSendResult> {
     if (!this.isEnabled) {
-      await this.createSkippedTrackingItems(input.order.orderId, recipientEmails, 'ses-disabled')
+      await this.createSkippedTrackingItems(input, 'ses-disabled')
       return {
         status: 'SKIPPED',
         reason: 'ses-disabled',
-        recipientEmails,
+        recipientEmails: input.recipientEmails,
       }
     }
 
     if (!this.fromEmail) {
-      await this.createSkippedTrackingItems(input.order.orderId, recipientEmails, 'missing-from-email')
+      await this.createSkippedTrackingItems(input, 'missing-from-email')
       return {
         status: 'SKIPPED',
         reason: 'missing-from-email',
-        recipientEmails,
+        recipientEmails: input.recipientEmails,
       }
     }
 
-    if (recipientEmails.length === 0) {
-      this.emailTrackingService.logTrackingSkipped(input.order.orderId, 'missing-recipient-email')
+    if (input.recipientEmails.length === 0) {
+      this.emailTrackingService.logTrackingSkipped(input.contextId, 'missing-recipient-email')
       return {
         status: 'SKIPPED',
         reason: 'missing-recipient-email',
-        recipientEmails,
+        recipientEmails: input.recipientEmails,
       }
     }
 
     let trackingEmailIds: string[] = []
 
     try {
-      const trackingItems = await this.emailTrackingService.createOrderConfirmationTrackingItems({
-        orderId: input.order.orderId,
-        recipientEmails,
+      const trackingItems = await this.emailTrackingService.createTrackingItems({
+        emailType: input.emailType,
+        contextType: input.contextType,
+        contextId: input.contextId,
+        recipientEmails: input.recipientEmails,
         status: 'PENDING',
         configurationSetName: this.configurationSetName,
+        resendOfByRecipient: input.resendOfByRecipient,
       })
       trackingEmailIds = trackingItems.map((item) => item.emailId)
 
-      const template = await this.getOrderConfirmationTemplate()
-      const html = template(buildOrderConfirmationTemplateView(input))
+      const template = await this.getTemplate(input.emailType)
+      const html = template(input.templateView)
 
       const commandInput: SendEmailCommandInput = {
         FromEmailAddress: this.fromEmail,
         Destination: {
-          ToAddresses: recipientEmails,
+          ToAddresses: input.recipientEmails,
         },
-        ...(this.configurationSetName
-          ? { ConfigurationSetName: this.configurationSetName }
-          : {}),
+        ...(this.configurationSetName ? { ConfigurationSetName: this.configurationSetName } : {}),
         Content: {
           Simple: {
             Subject: {
-              Data: this.orderConfirmationSubject,
+              Data: input.subject,
               Charset: 'UTF-8',
             },
             Body: {
@@ -139,7 +229,7 @@ export class SesMailService {
         await this.emailTrackingService.markSent(trackingEmailIds, response.MessageId)
       } catch (error) {
         this.logger.error(
-          `Failed to mark order confirmation email tracking as sent for order ${input.order.orderId}.`,
+          `Failed to mark ${input.emailType} tracking as sent for ${input.contextId}.`,
           error,
         )
       }
@@ -147,13 +237,10 @@ export class SesMailService {
       return {
         status: 'SENT',
         messageId: response.MessageId,
-        recipientEmails,
+        recipientEmails: input.recipientEmails,
       }
     } catch (error) {
-      this.logger.error(
-        `Failed to send order confirmation email for order ${input.order.orderId}.`,
-        error,
-      )
+      this.logger.error(`Failed to send ${input.emailType} for ${input.contextId}.`, error)
 
       const failureReason = error instanceof Error ? error.message : 'ses-send-failed'
       if (trackingEmailIds.length > 0) {
@@ -163,42 +250,56 @@ export class SesMailService {
       return {
         status: 'FAILED',
         reason: failureReason,
-        recipientEmails,
+        recipientEmails: input.recipientEmails,
       }
     }
   }
 
   private async createSkippedTrackingItems(
-    orderId: string,
-    recipientEmails: string[],
+    input: {
+      emailType: EmailType
+      contextType: EmailContextType
+      contextId: string
+      recipientEmails: string[]
+      resendOfByRecipient?: Record<string, string>
+    },
     reason: string,
   ): Promise<void> {
-    if (recipientEmails.length === 0) {
-      this.emailTrackingService.logTrackingSkipped(orderId, reason)
+    if (input.recipientEmails.length === 0) {
+      this.emailTrackingService.logTrackingSkipped(input.contextId, reason)
       return
     }
 
-    await this.emailTrackingService.createOrderConfirmationTrackingItems({
-      orderId,
-      recipientEmails,
+    await this.emailTrackingService.createTrackingItems({
+      emailType: input.emailType,
+      contextType: input.contextType,
+      contextId: input.contextId,
+      recipientEmails: input.recipientEmails,
       status: 'SKIPPED',
       configurationSetName: this.configurationSetName,
       failureReason: reason,
+      resendOfByRecipient: input.resendOfByRecipient,
     })
   }
 
-  private async getOrderConfirmationTemplate(): Promise<
-    Handlebars.TemplateDelegate<OrderConfirmationTemplateView>
-  > {
-    this.orderConfirmationTemplatePromise ??= this.loadOrderConfirmationTemplate()
-    return this.orderConfirmationTemplatePromise
+  private async getTemplate(
+    emailType: EmailType,
+  ): Promise<Handlebars.TemplateDelegate<MailTemplateView>> {
+    const existingPromise = this.templatePromises.get(emailType)
+    if (existingPromise) {
+      return existingPromise
+    }
+
+    const promise = this.loadTemplate(emailType)
+    this.templatePromises.set(emailType, promise)
+    return promise
   }
 
-  private async loadOrderConfirmationTemplate(): Promise<
-    Handlebars.TemplateDelegate<OrderConfirmationTemplateView>
-  > {
-    const templateSource = await this.readTemplateFile(ORDER_CONFIRMATION_TEMPLATE_FILE)
-    return Handlebars.compile<OrderConfirmationTemplateView>(templateSource)
+  private async loadTemplate(
+    emailType: EmailType,
+  ): Promise<Handlebars.TemplateDelegate<MailTemplateView>> {
+    const templateSource = await this.readTemplateFile(TEMPLATE_FILES[emailType])
+    return Handlebars.compile<MailTemplateView>(templateSource)
   }
 
   private async readTemplateFile(templateFileName: string): Promise<string> {
@@ -234,13 +335,39 @@ function buildOrderConfirmationTemplateView(
     paidAt,
     paymentTransactionId: input.order.paymentTransactionId ?? 'N/A',
     totalAmount: formatCurrency(input.order.totalAmount ?? 0),
-    items: input.items.map((item) => ({
-      productName: item.productName,
-      quantity: item.quantity,
-      unitPrice: formatCurrency(item.unitPrice),
-      lineTotal: formatCurrency(item.lineTotal),
-    })),
+    items: buildOrderItemTemplateViews(input.items),
   }
+}
+
+function buildShippedOrderNotificationTemplateView(
+  input: SendShippedOrderNotificationEmailInput,
+): ShippedOrderNotificationTemplateView {
+  return {
+    customerName: input.order.customerName?.trim() || 'ban',
+    orderId: input.order.orderId,
+    shippedAt: formatOrderTimestamp(input.shippedAt),
+    totalAmount: formatCurrency(input.order.totalAmount ?? 0),
+    items: buildOrderItemTemplateViews(input.items),
+  }
+}
+
+function buildWelcomeNewCustomerTemplateView(
+  input: SendWelcomeNewCustomerEmailInput,
+): WelcomeNewCustomerTemplateView {
+  return {
+    customerName: input.user.name?.trim() || input.user.username || 'ban',
+    username: input.user.username,
+    email: input.user.email ?? 'N/A',
+  }
+}
+
+function buildOrderItemTemplateViews(items: SendOrderConfirmationEmailInput['items']) {
+  return items.map((item) => ({
+    productName: item.productName,
+    quantity: item.quantity,
+    unitPrice: formatCurrency(item.unitPrice),
+    lineTotal: formatCurrency(item.lineTotal),
+  }))
 }
 
 function formatCurrency(amount: number): string {
@@ -266,10 +393,35 @@ function isMissingFileError(error: unknown): boolean {
 function resolveRecipientEmails(
   customerEmail: string | undefined,
   additionalReceivingEmails: string[] | undefined,
+  overrideRecipientEmails?: string[],
 ): string[] {
-  const recipients = [customerEmail, ...(additionalReceivingEmails ?? [])]
-    .map((email) => email?.trim().toLowerCase())
-    .filter((email): email is string => Boolean(email))
+  const recipients = overrideRecipientEmails ?? [
+    customerEmail,
+    ...(additionalReceivingEmails ?? []),
+  ]
 
-  return Array.from(new Set(recipients))
+  return Array.from(
+    new Set(
+      recipients
+        .map((email) => email?.trim().toLowerCase())
+        .filter((email): email is string => Boolean(email)),
+    ),
+  )
+}
+
+function resolveResendOfByRecipient(
+  input: { resendOfEmailId?: string; resendOfByRecipient?: Record<string, string> },
+  recipientEmails: string[],
+): Record<string, string> | undefined {
+  if (input.resendOfByRecipient) {
+    return input.resendOfByRecipient
+  }
+
+  if (!input.resendOfEmailId || recipientEmails.length !== 1) {
+    return undefined
+  }
+
+  return {
+    [recipientEmails[0]]: input.resendOfEmailId,
+  }
 }

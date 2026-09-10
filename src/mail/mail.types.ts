@@ -1,14 +1,37 @@
-import { Order, OrderItem } from '../orders/orders.types'
+import type { Order, OrderItem } from '../orders/orders.types'
 
 export interface SendOrderConfirmationEmailInput {
   order: Order
   items: OrderItem[]
+  recipientEmails?: string[]
+  resendOfEmailId?: string
+  resendOfByRecipient?: Record<string, string>
 }
 
-export type OrderConfirmationEmailStatus = 'SENT' | 'SKIPPED' | 'FAILED'
+export interface SendShippedOrderNotificationEmailInput {
+  order: Order
+  items: OrderItem[]
+  shippedAt: string
+  recipientEmails?: string[]
+  resendOfEmailId?: string
+  resendOfByRecipient?: Record<string, string>
+}
 
-export interface OrderConfirmationEmailResult {
-  status: OrderConfirmationEmailStatus
+export interface SendWelcomeNewCustomerEmailInput {
+  user: {
+    sub?: string
+    username: string
+    email?: string
+    name?: string
+  }
+  recipientEmails?: string[]
+  resendOfByRecipient?: Record<string, string>
+}
+
+export type EmailSendStatus = 'SENT' | 'SKIPPED' | 'FAILED'
+
+export interface EmailSendResult {
+  status: EmailSendStatus
   messageId?: string
   reason?: string
   recipientEmails?: string[]
@@ -17,7 +40,9 @@ export interface OrderConfirmationEmailResult {
 export type EmailDeliveryStatus =
   'PENDING' | 'SENT' | 'DELIVERED' | 'BOUNCED' | 'COMPLAINED' | 'REJECTED' | 'FAILED' | 'SKIPPED'
 
-export type EmailType = 'ORDER_CONFIRMATION' // WELCOME_EMAIL | ORDER_SHIPMENT | PASSWORD_RESET
+export type EmailType = 'ORDER_CONFIRMATION' | 'WELCOME_NEW_CUSTOMER' | 'SHIPPED_ORDER_NOTIFICATION'
+
+export type EmailContextType = 'ORDER' | 'USER'
 
 export interface EmailTracking {
   emailId: string
@@ -25,7 +50,7 @@ export interface EmailTracking {
   recipientEmail: string
   status: EmailDeliveryStatus // PENDING, SENT, DELIVERED, BOUNCED, COMPLAINED,...
 
-  contextType: 'ORDER' // USER | ORDER | INVOICE | PAYMENT
+  contextType: EmailContextType // USER | ORDER | INVOICE | PAYMENT
   contextId: string // userId | orderId | invoiceId | paymentId
   contextKey: string
 
@@ -49,3 +74,30 @@ export interface EmailTracking {
   complainedAt?: string
   failedAt?: string
 }
+
+export interface EmailTrackingView extends EmailTracking {
+  isRetryable: boolean
+}
+
+export interface EmailDeliverySummary {
+  recipientEmail: string
+  emailType: EmailType
+  status: EmailDeliveryStatus
+  updatedAt: string
+  emailId: string
+  isRetryable: boolean
+  attemptNumber: number
+}
+
+export type EmailDeliveryStatistics = Record<EmailType, Record<EmailDeliveryStatus, number>>
+
+export const EMAIL_DELIVERY_STATUSES: EmailDeliveryStatus[] = [
+  'PENDING',
+  'SENT',
+  'DELIVERED',
+  'BOUNCED',
+  'COMPLAINED',
+  'REJECTED',
+  'FAILED',
+  'SKIPPED',
+]

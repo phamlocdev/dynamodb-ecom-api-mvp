@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Inject, Patch, Req } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
 import {
   ApiBadRequestResponse,
   ApiOkResponse,
@@ -9,6 +22,9 @@ import {
 import { AuthenticatedRequest } from '../auth/auth.types'
 import { Role } from '../auth/roles.enum'
 import { Roles } from '../auth/roles.decorator'
+import { EmailStatisticsQueryDto } from '../mail/dto/email-statistics-query.dto'
+import { ResendEmailRecipientDto } from '../mail/dto/resend-email-recipient.dto'
+import { EmailDeliveryStatistics } from '../mail/mail.types'
 import { DtoValidationPipe } from '../validation/dto-validation.pipe'
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto'
 import { UsersService } from './users.service'
@@ -23,8 +39,46 @@ export class UsersController {
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'List Cognito users with their groups' })
   @ApiOkResponse({ description: 'Returns all Cognito users and their current roles.' })
-  findAll(): Promise<ManagedUser[]> {
+  findAll(
+    @Req() request: AuthenticatedRequest,
+    @Query(new DtoValidationPipe(EmailStatisticsQueryDto)) query: EmailStatisticsQueryDto,
+  ): Promise<ManagedUser[] | EmailDeliveryStatistics> {
+    if (query.emailStatistics === 'true') {
+      if (!request.user?.groups.includes(Role.ADMIN)) {
+        throw new ForbiddenException('You do not have permission to view email statistics.')
+      }
+      return this.usersService.getWelcomeEmailStatistics()
+    }
+
     return this.usersService.findAll()
+  }
+
+  @Get('email-statistics')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Get welcome email delivery statistics' })
+  @ApiOkResponse({ description: 'Returns counts by welcome email delivery status.' })
+  getWelcomeEmailStatistics() {
+    return this.usersService.getWelcomeEmailStatistics()
+  }
+
+  @Get(':userId/email-tracking')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Get welcome email tracking attempts for one user' })
+  @ApiOkResponse({ description: 'Returns welcome email tracking attempts.' })
+  getWelcomeEmailTracking(@Param('userId') userId: string) {
+    return this.usersService.getWelcomeEmailTracking(userId)
+  }
+
+  @Post(':userId/emails/welcome-new-customer/resend-failed')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend retryable failed welcome email to one recipient' })
+  @ApiOkResponse({ description: 'Returns resend result for one retryable recipient.' })
+  resendFailedWelcomeEmail(
+    @Param('userId') userId: string,
+    @Body(new DtoValidationPipe(ResendEmailRecipientDto)) dto: ResendEmailRecipientDto,
+  ) {
+    return this.usersService.resendFailedWelcomeEmail(userId, dto.recipientEmail)
   }
 
   @Get('me/profile')

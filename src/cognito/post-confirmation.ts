@@ -1,26 +1,20 @@
-import {
-  AdminAddUserToGroupCommand,
-  CognitoIdentityProviderClient,
-} from '@aws-sdk/client-cognito-identity-provider'
-import type { PostConfirmationTriggerHandler } from 'aws-lambda'
+import type { PostConfirmationTriggerEvent } from 'aws-lambda'
+import { PostConfirmationService } from './post-confirmation.service'
+import { createPostConfirmationApp } from '../worker.bootstrap'
 
-const defaultGroup = process.env.COGNITO_DEFAULT_GROUP ?? 'customer'
-const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? 'ap-southeast-1'
+let servicePromise: Promise<PostConfirmationService>
 
-const cognitoClient = new CognitoIdentityProviderClient({ region })
-
-export const handler: PostConfirmationTriggerHandler = async (event) => {
-  if (!event.userPoolId || !event.userName) {
-    return event
+async function getPostConfirmationService(): Promise<PostConfirmationService> {
+  if (!servicePromise) {
+    servicePromise = createPostConfirmationApp().then((app) => app.get(PostConfirmationService))
   }
 
-  await cognitoClient.send(
-    new AdminAddUserToGroupCommand({
-      GroupName: defaultGroup,
-      UserPoolId: event.userPoolId,
-      Username: event.userName,
-    }),
-  )
+  return servicePromise
+}
 
-  return event
+export async function handler(
+  event: PostConfirmationTriggerEvent,
+): Promise<PostConfirmationTriggerEvent> {
+  const service = await getPostConfirmationService()
+  return service.handle(event)
 }

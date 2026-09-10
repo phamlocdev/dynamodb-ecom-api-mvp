@@ -100,6 +100,16 @@ export class DynamoDbConstruct extends Construct {
       partitionKey: { name: 'sesMessageId', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'recipientEmail', type: dynamodb.AttributeType.STRING },
     })
+    this.emailTrackingTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_ContextEmailType',
+      partitionKey: { name: 'contextKey', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'emailType', type: dynamodb.AttributeType.STRING },
+    })
+    this.emailTrackingTable.addGlobalSecondaryIndex({
+      indexName: 'GSI_EmailTypeStatus',
+      partitionKey: { name: 'emailType', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+    })
 
     this.inventoryTable = new dynamodb.Table(this, 'InventoryTable', {
       tableName: infraEnv.inventoryTableName,
