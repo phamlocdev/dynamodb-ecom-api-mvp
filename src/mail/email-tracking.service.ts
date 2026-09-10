@@ -78,10 +78,11 @@ export class EmailTrackingService {
   }): Promise<EmailTracking[]> {
     const createdAt = new Date().toISOString()
     const contextKey = buildContextKey(input.contextType, input.contextId)
-    const attemptNumber = await this.resolveNextAttemptNumber(
+    const attemptNumberByRecipient = await this.resolveNextAttemptNumbersByRecipient(
       input.contextType,
       input.contextId,
       input.emailType,
+      input.recipientEmails,
     )
     const items = input.recipientEmails.map((recipientEmail) => ({
       emailId: randomUUID(),
@@ -91,7 +92,7 @@ export class EmailTrackingService {
       contextType: input.contextType,
       contextId: input.contextId,
       contextKey,
-      attemptNumber,
+      attemptNumber: attemptNumberByRecipient.get(recipientEmail) ?? 1,
       resendOfEmailId: input.resendOfByRecipient?.[recipientEmail],
       configurationSetName: input.configurationSetName,
       failureReason: input.failureReason,
@@ -280,15 +281,31 @@ export class EmailTrackingService {
     this.logger.warn(`Skipped email tracking for ${contextId}: ${reason}.`)
   }
 
-  private async resolveNextAttemptNumber(
+  private async resolveNextAttemptNumbersByRecipient(
     contextType: EmailContextType,
     contextId: string,
     emailType: EmailType,
-  ): Promise<number> {
+    recipientEmails: string[],
+  ): Promise<Map<string, number>> {
     const items = await this.findByContext(contextType, contextId, [emailType])
-    const maxAttemptNumber = items.reduce((max, item) => Math.max(max, item.attemptNumber ?? 0), 0)
+    const maxAttemptNumberByRecipient = new Map<string, number>()
 
-    return maxAttemptNumber + 1
+    for (const item of items) {
+      maxAttemptNumberByRecipient.set(
+        item.recipientEmail,
+        Math.max(
+          maxAttemptNumberByRecipient.get(item.recipientEmail) ?? 0,
+          item.attemptNumber ?? 0,
+        ),
+      )
+    }
+
+    return new Map(
+      recipientEmails.map((recipientEmail) => [
+        recipientEmail,
+        (maxAttemptNumberByRecipient.get(recipientEmail) ?? 0) + 1,
+      ]),
+    )
   }
 
   private async scanByContext(contextKey: string): Promise<EmailTracking[]> {

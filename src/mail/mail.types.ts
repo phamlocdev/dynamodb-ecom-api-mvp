@@ -57,6 +57,7 @@ export interface EmailTracking {
   sesMessageId?: string // The message ID returned by SES when the email is sent
   attemptNumber: number
   resendOfEmailId?: string
+  lastSesEventAt?: string
 
   bounceType?: 'Permanent' | 'Transient' | 'Undetermined'
   bounceSubType?: string

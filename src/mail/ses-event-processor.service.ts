@@ -140,15 +140,25 @@ export class SesEventProcessorService {
       return
     }
 
-    await this.dynamoDbService.documentClient.send(
-      new UpdateCommand({
-        TableName: this.tableName,
-        Key: { emailId },
-        UpdateExpression: update.updateExpression,
-        ExpressionAttributeNames: update.names,
-        ExpressionAttributeValues: update.values,
-      }),
-    )
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { emailId },
+          UpdateExpression: update.updateExpression,
+          ConditionExpression: update.conditionExpression,
+          ExpressionAttributeNames: update.names,
+          ExpressionAttributeValues: update.values,
+        }),
+      )
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) {
+        this.logger.log(`Skipped stale SES ${event.eventType} event for tracking item ${emailId}.`)
+        return
+      }
+
+      throw error
+    }
   }
 }
 
@@ -159,41 +169,46 @@ function buildEventUpdate(
 ):
   | {
       updateExpression: string
+      conditionExpression: string
       names: Record<string, string>
       values: Record<string, unknown>
     }
   | undefined {
+  const status = resolveStatus(event.eventType)
+  if (!status) {
+    return undefined
+  }
+
   const names: Record<string, string> = {
     '#status': 'status',
     '#updatedAt': 'updatedAt',
+    '#lastSesEventAt': 'lastSesEventAt',
   }
   const values: Record<string, unknown> = {
     ':updatedAt': timestamp,
+    ':lastSesEventAt': timestamp,
+    ':status': status,
   }
-  const assignments = ['#updatedAt = :updatedAt']
+  const assignments = [
+    '#updatedAt = :updatedAt',
+    '#lastSesEventAt = :lastSesEventAt',
+    '#status = :status',
+  ]
 
   switch (event.eventType) {
     case 'Send':
-      values[':status'] = 'SENT'
-      assignments.push('#status = :status')
       break
     case 'Delivery':
       names['#deliveredAt'] = 'deliveredAt'
-      values[':status'] = 'DELIVERED'
       values[':deliveredAt'] = timestamp
-      assignments.push('#status = :status', '#deliveredAt = :deliveredAt')
+      assignments.push('#deliveredAt = :deliveredAt')
       break
     case 'Bounce':
       names['#bouncedAt'] = 'bouncedAt'
       names['#failureReason'] = 'failureReason'
-      values[':status'] = 'BOUNCED'
       values[':bouncedAt'] = timestamp
       values[':failureReason'] = resolveBounceFailureReason(event, recipientEmail)
-      assignments.push(
-        '#status = :status',
-        '#bouncedAt = :bouncedAt',
-        '#failureReason = :failureReason',
-      )
+      assignments.push('#bouncedAt = :bouncedAt', '#failureReason = :failureReason')
       if (event.bounce?.bounceType) {
         names['#bounceType'] = 'bounceType'
         values[':bounceType'] = event.bounce.bounceType
@@ -207,9 +222,8 @@ function buildEventUpdate(
       break
     case 'Complaint':
       names['#complainedAt'] = 'complainedAt'
-      values[':status'] = 'COMPLAINED'
       values[':complainedAt'] = timestamp
-      assignments.push('#status = :status', '#complainedAt = :complainedAt')
+      assignments.push('#complainedAt = :complainedAt')
       if (event.complaint?.complaintSubType) {
         names['#complaintSubType'] = 'complaintSubType'
         values[':complaintSubType'] = event.complaint.complaintSubType
@@ -219,29 +233,19 @@ function buildEventUpdate(
     case 'Reject':
       names['#failedAt'] = 'failedAt'
       names['#failureReason'] = 'failureReason'
-      values[':status'] = 'REJECTED'
       values[':failedAt'] = timestamp
       values[':failureReason'] = event.reject?.reason ?? 'ses-rejected-email'
-      assignments.push(
-        '#status = :status',
-        '#failedAt = :failedAt',
-        '#failureReason = :failureReason',
-      )
+      assignments.push('#failedAt = :failedAt', '#failureReason = :failureReason')
       break
     case 'Rendering Failure':
       names['#failedAt'] = 'failedAt'
       names['#failureReason'] = 'failureReason'
-      values[':status'] = 'FAILED'
       values[':failedAt'] = timestamp
       values[':failureReason'] =
         event.renderingFailure?.errorMessage ??
         event.failure?.errorMessage ??
         'ses-rendering-failure'
-      assignments.push(
-        '#status = :status',
-        '#failedAt = :failedAt',
-        '#failureReason = :failureReason',
-      )
+      assignments.push('#failedAt = :failedAt', '#failureReason = :failureReason')
       break
     default:
       return undefined
@@ -249,8 +253,29 @@ function buildEventUpdate(
 
   return {
     updateExpression: `SET ${assignments.join(', ')}`,
+    conditionExpression:
+      'attribute_not_exists(#lastSesEventAt) OR :lastSesEventAt >= #lastSesEventAt',
     names,
     values,
+  }
+}
+
+function resolveStatus(eventType: SesEventType | undefined): EmailTracking['status'] | undefined {
+  switch (eventType) {
+    case 'Send':
+      return 'SENT'
+    case 'Delivery':
+      return 'DELIVERED'
+    case 'Bounce':
+      return 'BOUNCED'
+    case 'Complaint':
+      return 'COMPLAINED'
+    case 'Reject':
+      return 'REJECTED'
+    case 'Rendering Failure':
+      return 'FAILED'
+    default:
+      return undefined
   }
 }
 
@@ -305,5 +330,14 @@ function normalizeEmails(emails: Array<string | undefined> | undefined): string[
         .map((email) => email?.trim().toLowerCase())
         .filter((email): email is string => Boolean(email)),
     ),
+  )
+}
+
+function isConditionalCheckFailure(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    error.name === 'ConditionalCheckFailedException'
   )
 }
