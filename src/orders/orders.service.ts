@@ -34,6 +34,7 @@ import { UsersService } from '../users/users.service'
 import { OrdersQueueService } from './orders.queue'
 import { CreateOrderDto } from './dto/create-order.dto'
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto'
+import { OrderEventsPublisher } from './order-events.publisher'
 import { OrderStatus } from './order-status.enum'
 import { PAYMENT_WINDOW_EXPIRED_REASON } from './payment-reservation.config'
 import { PaymentStatus } from './payment-status.enum'
@@ -91,6 +92,8 @@ export class OrdersService {
     private readonly sesMailService: SesMailService,
     @Inject(OrdersQueueService)
     private readonly ordersQueueService: OrdersQueueService,
+    @Inject(OrderEventsPublisher)
+    private readonly orderEventsPublisher: OrderEventsPublisher,
     @Inject(VnpayService)
     private readonly vnpayService: VnpayService,
     @Inject(ConfigService)
@@ -412,7 +415,18 @@ export class OrdersService {
     }
 
     const updatedOrder = await this.getById(orderId)
-    await this.sendShippedOrderNotificationBestEffort(updatedOrder, shippedAt)
+    try {
+      await this.orderEventsPublisher.publishOrderShipped({
+        orderId: updatedOrder.orderId,
+        shippedAt,
+      })
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish shipped event for order ${updatedOrder.orderId} shippedAt=${shippedAt}.`,
+        error,
+      )
+      throw error
+    }
     return updatedOrder
   }
 

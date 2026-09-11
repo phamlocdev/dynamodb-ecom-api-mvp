@@ -1,4 +1,5 @@
 import * as cdk from 'aws-cdk-lib'
+import * as events from 'aws-cdk-lib/aws-events'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from './config/env'
 import { HttpApiConstruct } from './constructs/api/http-api.construct'
@@ -7,6 +8,7 @@ import { CognitoConstruct } from './constructs/auth/cognito.construct'
 import { DynamoDbConstruct } from './constructs/data/dynamodb.construct'
 import { OrdersWorkersConstruct } from './constructs/messaging/orders-workers.construct'
 import { SqsConstruct } from './constructs/messaging/sqs.construct'
+import { OrderNotificationConstruct } from './constructs/notification/order-notification.construct'
 import { SesConstruct } from './constructs/notification/ses.construct'
 import { ImageProcessorConstruct } from './constructs/storage/image-processor.construct'
 import { S3Construct } from './constructs/storage/s3.construct'
@@ -20,6 +22,9 @@ export class ServerStack extends cdk.Stack {
     const data = new DynamoDbConstruct(this, 'Data')
     const messaging = new SqsConstruct(this, 'Messaging', {
       visibilityTimeout: cdk.Duration.seconds(90),
+    })
+    const orderEventsBus = new events.EventBus(this, 'OrderEventsBus', {
+      eventBusName: env.orderEventsBusName,
     })
 
     const auth = new CognitoConstruct(this, 'Auth', {
@@ -57,10 +62,19 @@ export class ServerStack extends cdk.Stack {
       userProfilesTable: data.userProfilesTable,
       mediaBucket: storage.mediaBucket,
       placeOrderQueue: messaging.placeOrderQueue,
+      orderEventsBus,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
     })
     notification.grantSendEmail(apiLambda.apiHandler)
+
+    const orderNotification = new OrderNotificationConstruct(this, 'OrderNotification', {
+      eventBus: orderEventsBus,
+      ordersTable: data.ordersTable,
+      orderItemsTable: data.orderItemsTable,
+      emailTrackingTable: data.emailTrackingTable,
+    })
+    notification.grantSendEmail(orderNotification.worker)
 
     new OrdersWorkersConstruct(this, 'OrdersWorkers', {
       productsTable: data.productsTable,
@@ -111,6 +125,10 @@ export class ServerStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'PlaceOrderQueueUrl', {
       value: messaging.placeOrderQueue.queueUrl,
+    })
+
+    new cdk.CfnOutput(this, 'OrderEventsBusName', {
+      value: orderEventsBus.eventBusName,
     })
 
     new cdk.CfnOutput(this, 'MediaBucketName', {

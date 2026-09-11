@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as events from 'aws-cdk-lib/aws-events'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
@@ -26,6 +27,7 @@ export interface LambdaApiConstructProps {
   userProfilesTable: dynamodb.ITable
   mediaBucket: s3.IBucket
   placeOrderQueue: sqs.IQueue
+  orderEventsBus: events.IEventBus
   userPoolId: string
   userPoolClientId: string
 }
@@ -66,6 +68,7 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
+        ORDER_EVENTS_BUS_NAME: props.orderEventsBus.eventBusName,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
         VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
         VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
@@ -92,6 +95,7 @@ export class LambdaApiConstruct extends Construct {
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.userProfilesTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
+    props.orderEventsBus.grantPutEventsTo(this.apiHandler)
     this.apiHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],
