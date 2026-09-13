@@ -21,6 +21,7 @@ export interface Order {
   createdAt: string
   updatedAt: string
   shippedAt?: string
+  cancelledAt?: string
   reservedAt?: string
   paymentExpiresAt?: number
   failureReason?: string

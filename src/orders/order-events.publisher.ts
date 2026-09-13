@@ -4,10 +4,17 @@ import { ConfigService } from '@nestjs/config'
 
 const ORDER_EVENT_SOURCE = 'ecommerce.orders'
 const ORDER_SHIPPED_DETAIL_TYPE = 'OrderShipped'
+const ORDER_CANCELLED_DETAIL_TYPE = 'OrderCancelled'
 
 export interface OrderShippedEventDetail {
   orderId: string
   shippedAt: string
+}
+
+export interface OrderCancelledEventDetail {
+  orderId: string
+  cancelledAt: string
+  totalAmount: number
 }
 
 @Injectable()
@@ -27,13 +34,24 @@ export class OrderEventsPublisher {
   }
 
   async publishOrderShipped(detail: OrderShippedEventDetail): Promise<void> {
+    await this.publishOrderEvent(ORDER_SHIPPED_DETAIL_TYPE, detail)
+  }
+
+  async publishOrderCancelled(detail: OrderCancelledEventDetail): Promise<void> {
+    await this.publishOrderEvent(ORDER_CANCELLED_DETAIL_TYPE, detail)
+  }
+
+  private async publishOrderEvent(
+    detailType: typeof ORDER_SHIPPED_DETAIL_TYPE | typeof ORDER_CANCELLED_DETAIL_TYPE,
+    detail: OrderShippedEventDetail | OrderCancelledEventDetail,
+  ): Promise<void> {
     const response = await this.eventBridgeClient.send(
       new PutEventsCommand({
         Entries: [
           {
             EventBusName: this.busName,
             Source: ORDER_EVENT_SOURCE,
-            DetailType: ORDER_SHIPPED_DETAIL_TYPE,
+            DetailType: detailType,
             Detail: JSON.stringify(detail),
           },
         ],
@@ -43,9 +61,9 @@ export class OrderEventsPublisher {
     if (response.FailedEntryCount && response.FailedEntryCount > 0) {
       const failedEntry = response.Entries?.find((entry) => entry.ErrorCode || entry.ErrorMessage)
       this.logger.error(
-        `Failed to publish ${ORDER_SHIPPED_DETAIL_TYPE} for order ${detail.orderId}: ${failedEntry?.ErrorCode ?? 'unknown-error'} ${failedEntry?.ErrorMessage ?? ''}`.trim(),
+        `Failed to publish ${detailType} for order ${detail.orderId}: ${failedEntry?.ErrorCode ?? 'unknown-error'} ${failedEntry?.ErrorMessage ?? ''}`.trim(),
       )
-      throw new Error(`Failed to publish ${ORDER_SHIPPED_DETAIL_TYPE} event.`)
+      throw new Error(`Failed to publish ${detailType} event.`)
     }
   }
 }

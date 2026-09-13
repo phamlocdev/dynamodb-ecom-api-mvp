@@ -9,6 +9,7 @@ import {
   EmailContextType,
   EmailSendResult,
   EmailType,
+  SendCancelledOrderNotificationEmailInput,
   SendOrderConfirmationEmailInput,
   SendShippedOrderNotificationEmailInput,
   SendWelcomeNewCustomerEmailInput,
@@ -18,11 +19,13 @@ const TEMPLATE_FILES: Record<EmailType, string> = {
   ORDER_CONFIRMATION: 'order-confirmation.hbs',
   WELCOME_NEW_CUSTOMER: 'welcome-new-customer.hbs',
   SHIPPED_ORDER_NOTIFICATION: 'shipped-order-notification.hbs',
+  CANCELLED_ORDER_NOTIFICATION: 'cancelled-order-notification.hbs',
 }
 const EMAIL_SUBJECTS: Record<EmailType, string> = {
   ORDER_CONFIRMATION: 'Xac nhan don hang cua ban',
   WELCOME_NEW_CUSTOMER: 'Chao mung ban den voi DynamoDB MVP',
   SHIPPED_ORDER_NOTIFICATION: 'Don hang cua ban da duoc van chuyen',
+  CANCELLED_ORDER_NOTIFICATION: 'Don hang cua ban da bi huy',
 }
 
 interface OrderConfirmationTemplateItemView {
@@ -49,6 +52,14 @@ interface ShippedOrderNotificationTemplateView {
   items: OrderConfirmationTemplateItemView[]
 }
 
+interface CancelledOrderNotificationTemplateView {
+  customerName: string
+  orderId: string
+  cancelledAt: string
+  totalAmount: string
+  items: OrderConfirmationTemplateItemView[]
+}
+
 interface WelcomeNewCustomerTemplateView {
   customerName: string
   username: string
@@ -58,6 +69,7 @@ interface WelcomeNewCustomerTemplateView {
 type MailTemplateView =
   | OrderConfirmationTemplateView
   | ShippedOrderNotificationTemplateView
+  | CancelledOrderNotificationTemplateView
   | WelcomeNewCustomerTemplateView
 
 @Injectable()
@@ -69,6 +81,7 @@ export class SesMailService {
   private readonly orderConfirmationSubject: string
   private readonly welcomeNewCustomerSubject: string
   private readonly shippedOrderNotificationSubject: string
+  private readonly cancelledOrderNotificationSubject: string
   private readonly configurationSetName?: string
   private readonly templatePromises = new Map<
     EmailType,
@@ -91,6 +104,7 @@ export class SesMailService {
     this.orderConfirmationSubject = EMAIL_SUBJECTS.ORDER_CONFIRMATION
     this.welcomeNewCustomerSubject = EMAIL_SUBJECTS.WELCOME_NEW_CUSTOMER
     this.shippedOrderNotificationSubject = EMAIL_SUBJECTS.SHIPPED_ORDER_NOTIFICATION
+    this.cancelledOrderNotificationSubject = EMAIL_SUBJECTS.CANCELLED_ORDER_NOTIFICATION
     this.configurationSetName = configService.get<string>('SES_CONFIGURATION_SET_NAME') ?? undefined
   }
 
@@ -130,6 +144,26 @@ export class SesMailService {
       recipientEmails,
       subject: this.shippedOrderNotificationSubject,
       templateView: buildShippedOrderNotificationTemplateView(input),
+      resendOfByRecipient: resolveResendOfByRecipient(input, recipientEmails),
+    })
+  }
+
+  async sendCancelledOrderNotificationEmail(
+    input: SendCancelledOrderNotificationEmailInput,
+  ): Promise<EmailSendResult> {
+    const recipientEmails = resolveRecipientEmails(
+      input.order.customerEmail,
+      input.order.additionalReceivingEmails,
+      input.recipientEmails,
+    )
+
+    return this.sendTemplatedEmail({
+      emailType: 'CANCELLED_ORDER_NOTIFICATION',
+      contextType: 'ORDER',
+      contextId: input.order.orderId,
+      recipientEmails,
+      subject: this.cancelledOrderNotificationSubject,
+      templateView: buildCancelledOrderNotificationTemplateView(input),
       resendOfByRecipient: resolveResendOfByRecipient(input, recipientEmails),
     })
   }
@@ -346,6 +380,18 @@ function buildShippedOrderNotificationTemplateView(
     customerName: input.order.customerName?.trim() || 'ban',
     orderId: input.order.orderId,
     shippedAt: formatOrderTimestamp(input.shippedAt),
+    totalAmount: formatCurrency(input.order.totalAmount ?? 0),
+    items: buildOrderItemTemplateViews(input.items),
+  }
+}
+
+function buildCancelledOrderNotificationTemplateView(
+  input: SendCancelledOrderNotificationEmailInput,
+): CancelledOrderNotificationTemplateView {
+  return {
+    customerName: input.order.customerName?.trim() || 'ban',
+    orderId: input.order.orderId,
+    cancelledAt: formatOrderTimestamp(input.cancelledAt),
     totalAmount: formatCurrency(input.order.totalAmount ?? 0),
     items: buildOrderItemTemplateViews(input.items),
   }

@@ -17,6 +17,15 @@ export interface SendShippedOrderNotificationEmailInput {
   resendOfByRecipient?: Record<string, string>
 }
 
+export interface SendCancelledOrderNotificationEmailInput {
+  order: Order
+  items: OrderItem[]
+  cancelledAt: string
+  recipientEmails?: string[]
+  resendOfEmailId?: string
+  resendOfByRecipient?: Record<string, string>
+}
+
 export interface SendWelcomeNewCustomerEmailInput {
   user: {
     sub?: string
@@ -40,7 +49,11 @@ export interface EmailSendResult {
 export type EmailDeliveryStatus =
   'PENDING' | 'SENT' | 'DELIVERED' | 'BOUNCED' | 'COMPLAINED' | 'REJECTED' | 'FAILED' | 'SKIPPED'
 
-export type EmailType = 'ORDER_CONFIRMATION' | 'WELCOME_NEW_CUSTOMER' | 'SHIPPED_ORDER_NOTIFICATION'
+export type EmailType =
+  | 'ORDER_CONFIRMATION'
+  | 'WELCOME_NEW_CUSTOMER'
+  | 'SHIPPED_ORDER_NOTIFICATION'
+  | 'CANCELLED_ORDER_NOTIFICATION'
 
 export type EmailContextType = 'ORDER' | 'USER'
 

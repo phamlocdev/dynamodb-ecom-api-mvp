@@ -65,7 +65,11 @@ const AUTO_REFUND_REASON =
   'Payment arrived after reservation expiry. Amount refunded automatically.'
 const ORDER_CONFIRMATION_EMAIL_SENT = 'SENT'
 const ORDER_CONFIRMATION_EMAIL_SKIPPED = 'SKIPPED'
-const ORDER_EMAIL_TYPES: EmailType[] = ['ORDER_CONFIRMATION', 'SHIPPED_ORDER_NOTIFICATION']
+const ORDER_EMAIL_TYPES: EmailType[] = [
+  'ORDER_CONFIRMATION',
+  'SHIPPED_ORDER_NOTIFICATION',
+  'CANCELLED_ORDER_NOTIFICATION',
+]
 
 @Injectable()
 export class OrdersService {
@@ -313,7 +317,11 @@ export class OrdersService {
     emailType: EmailType,
     recipientEmail: string,
   ): Promise<ResendOrderEmailResult> {
-    if (emailType !== 'ORDER_CONFIRMATION' && emailType !== 'SHIPPED_ORDER_NOTIFICATION') {
+    if (
+      emailType !== 'ORDER_CONFIRMATION' &&
+      emailType !== 'SHIPPED_ORDER_NOTIFICATION' &&
+      emailType !== 'CANCELLED_ORDER_NOTIFICATION'
+    ) {
       throw new BadRequestException(`Email type ${emailType} is not supported for order resend.`)
     }
 
@@ -343,21 +351,13 @@ export class OrdersService {
 
     const items = await this.findOrderItems(orderId)
     const recipientEmails = [normalizedRecipientEmail]
-    const result =
-      emailType === 'ORDER_CONFIRMATION'
-        ? await this.sesMailService.sendOrderConfirmationEmail({
-            order,
-            items,
-            recipientEmails,
-            resendOfEmailId: retryableItem.emailId,
-          })
-        : await this.sesMailService.sendShippedOrderNotificationEmail({
-            order,
-            items,
-            shippedAt: order.shippedAt ?? order.updatedAt,
-            recipientEmails,
-            resendOfEmailId: retryableItem.emailId,
-          })
+    const result = await this.resendOrderEmailByType({
+      order,
+      items,
+      emailType,
+      recipientEmails,
+      resendOfEmailId: retryableItem.emailId,
+    })
 
     return {
       orderId,
@@ -369,11 +369,56 @@ export class OrdersService {
     }
   }
 
-  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<Order> {
-    if (status !== OrderStatus.SHIPPED) {
-      throw new BadRequestException(`Only ${OrderStatus.SHIPPED} status updates are supported.`)
+  private async resendOrderEmailByType(input: {
+    order: Order
+    items: OrderItem[]
+    emailType: EmailType
+    recipientEmails: string[]
+    resendOfEmailId: string
+  }) {
+    if (input.emailType === 'ORDER_CONFIRMATION') {
+      return this.sesMailService.sendOrderConfirmationEmail({
+        order: input.order,
+        items: input.items,
+        recipientEmails: input.recipientEmails,
+        resendOfEmailId: input.resendOfEmailId,
+      })
     }
 
+    if (input.emailType === 'SHIPPED_ORDER_NOTIFICATION') {
+      return this.sesMailService.sendShippedOrderNotificationEmail({
+        order: input.order,
+        items: input.items,
+        shippedAt: input.order.shippedAt ?? input.order.updatedAt,
+        recipientEmails: input.recipientEmails,
+        resendOfEmailId: input.resendOfEmailId,
+      })
+    }
+
+    return this.sesMailService.sendCancelledOrderNotificationEmail({
+      order: input.order,
+      items: input.items,
+      cancelledAt: input.order.cancelledAt ?? input.order.updatedAt,
+      recipientEmails: input.recipientEmails,
+      resendOfEmailId: input.resendOfEmailId,
+    })
+  }
+
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<Order> {
+    if (status === OrderStatus.SHIPPED) {
+      return this.markOrderShipped(orderId)
+    }
+
+    if (status === OrderStatus.CANCELLED) {
+      return this.cancelConfirmedPaidOrder(orderId)
+    }
+
+    throw new BadRequestException(
+      `Only ${OrderStatus.SHIPPED} and ${OrderStatus.CANCELLED} status updates are supported.`,
+    )
+  }
+
+  private async markOrderShipped(orderId: string): Promise<Order> {
     const order = await this.getById(orderId)
     if (order.status === OrderStatus.SHIPPED) {
       return order
@@ -427,6 +472,82 @@ export class OrdersService {
       )
       throw error
     }
+    return updatedOrder
+  }
+
+  private async cancelConfirmedPaidOrder(orderId: string): Promise<Order> {
+    const order = await this.getById(orderId)
+    if (order.status === OrderStatus.CANCELLED) {
+      return order
+    }
+
+    if (order.status !== OrderStatus.CONFIRMED || order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Only paid confirmed orders can be cancelled.')
+    }
+
+    const items = await this.findOrderItems(order.orderId)
+    const inventoryItems = aggregateReservedItems(
+      items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    )
+    assertTransactionSize(inventoryItems)
+
+    const cancelledAt = new Date().toISOString()
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.ordersTableName,
+                Key: { orderId },
+                UpdateExpression:
+                  'SET #status = :cancelled, #cancelledAt = :cancelledAt, #updatedAt = :updatedAt',
+                ConditionExpression: '#status = :confirmed AND #paymentStatus = :paid',
+                ExpressionAttributeNames: {
+                  '#status': 'status',
+                  '#paymentStatus': 'paymentStatus',
+                  '#cancelledAt': 'cancelledAt',
+                  '#updatedAt': 'updatedAt',
+                },
+                ExpressionAttributeValues: {
+                  ':confirmed': OrderStatus.CONFIRMED,
+                  ':paid': PaymentStatus.PAID,
+                  ':cancelled': OrderStatus.CANCELLED,
+                  ':cancelledAt': cancelledAt,
+                  ':updatedAt': cancelledAt,
+                },
+              },
+            },
+            ...buildReleaseInventoryTransactItems(
+              this.inventoryTableName,
+              inventoryItems,
+              cancelledAt,
+            ),
+          ],
+        }),
+      )
+    } catch (error) {
+      if (isConditionalCheckFailure(error) || isTransactionCanceled(error)) {
+        throw new ConflictException(`Order ${orderId} cannot be cancelled.`)
+      }
+      throw error
+    }
+
+    const updatedOrder = await this.getById(orderId)
+    try {
+      await this.orderEventsPublisher.publishOrderCancelled({
+        orderId: updatedOrder.orderId,
+        cancelledAt,
+        totalAmount: updatedOrder.totalAmount ?? 0,
+      })
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish cancelled event for order ${updatedOrder.orderId} cancelledAt=${cancelledAt}.`,
+        error,
+      )
+      throw error
+    }
+
     return updatedOrder
   }
 

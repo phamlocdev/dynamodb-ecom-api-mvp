@@ -74,7 +74,7 @@ export class ServerStack extends cdk.Stack {
       orderItemsTable: data.orderItemsTable,
       emailTrackingTable: data.emailTrackingTable,
     })
-    notification.grantSendEmail(orderNotification.worker)
+    notification.grantSendEmail(orderNotification.orderNotificationWorker)
 
     new OrdersWorkersConstruct(this, 'OrdersWorkers', {
       productsTable: data.productsTable,

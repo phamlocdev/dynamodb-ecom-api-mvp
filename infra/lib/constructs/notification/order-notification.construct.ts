@@ -21,13 +21,17 @@ export interface OrderNotificationConstructProps {
 }
 
 export class OrderNotificationConstruct extends Construct {
-  readonly worker: nodejs.NodejsFunction
+  readonly orderNotificationWorker: nodejs.NodejsFunction
+  readonly analyticsDemoWorker: nodejs.NodejsFunction
+  readonly fulfillmentDemoWorker: nodejs.NodejsFunction
+  readonly cancellationInventoryDemoWorker: nodejs.NodejsFunction
+  readonly cancellationAccountingDemoWorker: nodejs.NodejsFunction
 
   constructor(scope: Construct, id: string, props: OrderNotificationConstructProps) {
     super(scope, id)
     const infraEnv = getAwsInfraEnv()
 
-    this.worker = new nodejs.NodejsFunction(this, 'Worker', {
+    this.orderNotificationWorker = new nodejs.NodejsFunction(this, 'Worker', {
       runtime: lambda.Runtime.NODEJS_24_X,
       entry: sourceEntryPath('order-notification-worker.ts'),
       handler: 'handler',
@@ -50,9 +54,61 @@ export class OrderNotificationConstruct extends Construct {
       },
     })
 
-    props.ordersTable.grantReadData(this.worker)
-    props.orderItemsTable.grantReadData(this.worker)
-    props.emailTrackingTable.grantReadWriteData(this.worker)
+    this.analyticsDemoWorker = new nodejs.NodejsFunction(this, 'AnalyticsDemoWorker', {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      entry: sourceEntryPath('order-shipped-analytics-demo-worker.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 128,
+      bundling: createNodejsBundling({
+        afterBundling: () => removeGeneratedSourceArtifacts(),
+      }),
+    })
+
+    this.fulfillmentDemoWorker = new nodejs.NodejsFunction(this, 'FulfillmentDemoWorker', {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      entry: sourceEntryPath('order-shipped-fulfillment-demo-worker.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 128,
+      bundling: createNodejsBundling({
+        afterBundling: () => removeGeneratedSourceArtifacts(),
+      }),
+    })
+
+    this.cancellationInventoryDemoWorker = new nodejs.NodejsFunction(
+      this,
+      'CancellationInventoryDemoWorker',
+      {
+        runtime: lambda.Runtime.NODEJS_24_X,
+        entry: sourceEntryPath('order-cancelled-inventory-demo-worker.ts'),
+        handler: 'handler',
+        timeout: cdk.Duration.seconds(30),
+        memorySize: 128,
+        bundling: createNodejsBundling({
+          afterBundling: () => removeGeneratedSourceArtifacts(),
+        }),
+      },
+    )
+
+    this.cancellationAccountingDemoWorker = new nodejs.NodejsFunction(
+      this,
+      'CancellationAccountingDemoWorker',
+      {
+        runtime: lambda.Runtime.NODEJS_24_X,
+        entry: sourceEntryPath('order-cancelled-accounting-demo-worker.ts'),
+        handler: 'handler',
+        timeout: cdk.Duration.seconds(30),
+        memorySize: 128,
+        bundling: createNodejsBundling({
+          afterBundling: () => removeGeneratedSourceArtifacts(),
+        }),
+      },
+    )
+
+    props.ordersTable.grantReadData(this.orderNotificationWorker)
+    props.orderItemsTable.grantReadData(this.orderNotificationWorker)
+    props.emailTrackingTable.grantReadWriteData(this.orderNotificationWorker)
 
     new events.Rule(this, 'OrderShippedRule', {
       eventBus: props.eventBus,
@@ -60,7 +116,39 @@ export class OrderNotificationConstruct extends Construct {
         source: ['ecommerce.orders'],
         detailType: ['OrderShipped'],
       },
-      targets: [new eventTargets.LambdaFunction(this.worker)],
+      targets: [
+        new eventTargets.LambdaFunction(this.orderNotificationWorker),
+        new eventTargets.LambdaFunction(this.analyticsDemoWorker),
+        new eventTargets.LambdaFunction(this.fulfillmentDemoWorker),
+      ],
+    })
+
+    const orderCancelledEventPattern: events.EventPattern = {
+      source: ['ecommerce.orders'],
+      detailType: ['OrderCancelled'],
+    }
+
+    new events.Rule(this, 'OrderCancelledInventoryRule', {
+      eventBus: props.eventBus,
+      eventPattern: orderCancelledEventPattern,
+      targets: [new eventTargets.LambdaFunction(this.cancellationInventoryDemoWorker)],
+    })
+
+    new events.Rule(this, 'OrderCancelledAccountingRule', {
+      eventBus: props.eventBus,
+      eventPattern: {
+        ...orderCancelledEventPattern,
+        detail: {
+          totalAmount: [{ numeric: ['>=', 10000000] }],
+        },
+      },
+      targets: [new eventTargets.LambdaFunction(this.cancellationAccountingDemoWorker)],
+    })
+
+    new events.Rule(this, 'OrderCancelledNotificationRule', {
+      eventBus: props.eventBus,
+      eventPattern: orderCancelledEventPattern,
+      targets: [new eventTargets.LambdaFunction(this.orderNotificationWorker)],
     })
   }
 }

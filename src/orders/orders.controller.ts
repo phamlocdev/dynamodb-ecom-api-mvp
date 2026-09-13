@@ -120,7 +120,10 @@ export class OrdersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Resend retryable failed order email recipients' })
   @ApiParam({ name: 'orderId', format: 'uuid' })
-  @ApiParam({ name: 'emailType', enum: ['ORDER_CONFIRMATION', 'SHIPPED_ORDER_NOTIFICATION'] })
+  @ApiParam({
+    name: 'emailType',
+    enum: ['ORDER_CONFIRMATION', 'SHIPPED_ORDER_NOTIFICATION', 'CANCELLED_ORDER_NOTIFICATION'],
+  })
   @ApiOkResponse({ description: 'Returns resend result for retryable recipients.' })
   resendFailedOrderEmail(
     @Param('orderId') orderId: string,

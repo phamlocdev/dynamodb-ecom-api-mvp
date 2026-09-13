@@ -38,6 +38,9 @@ export class OrderResponseDto {
   shippedAt?: string
 
   @ApiPropertyOptional()
+  cancelledAt?: string
+
+  @ApiPropertyOptional()
   reservedAt?: string
 
   @ApiPropertyOptional()

@@ -13,6 +13,11 @@ export interface OrderShippedNotificationEventDetail {
   shippedAt?: unknown
 }
 
+export interface OrderCancelledNotificationEventDetail {
+  orderId?: unknown
+  cancelledAt?: unknown
+}
+
 @Injectable()
 export class OrderNotificationWorkerService {
   private readonly logger = new Logger(OrderNotificationWorkerService.name)
@@ -80,6 +85,56 @@ export class OrderNotificationWorkerService {
 
     this.logger.warn(
       `Best-effort shipped notification for order ${order.orderId} finished with status=${result.status}: ${result.reason ?? 'unknown-reason'}.`,
+    )
+  }
+
+  async handleOrderCancelledEvent(detail: OrderCancelledNotificationEventDetail): Promise<void> {
+    console.log(`Received OrderCancelled event detail: ${JSON.stringify(detail)}.`)
+
+    if (!isNonEmptyString(detail.orderId) || !isNonEmptyString(detail.cancelledAt)) {
+      this.logger.warn(`Skipped invalid OrderCancelled event detail: ${JSON.stringify(detail)}.`)
+      return
+    }
+
+    const order = await this.findOrder(detail.orderId)
+    if (!order) {
+      this.logger.warn(
+        `Skipped cancelled notification because order ${detail.orderId} was not found.`,
+      )
+      return
+    }
+
+    if (order.status !== OrderStatus.CANCELLED || order.paymentStatus !== PaymentStatus.PAID) {
+      this.logger.warn(
+        `Skipped cancelled notification for order ${order.orderId}: status=${order.status}, paymentStatus=${order.paymentStatus}.`,
+      )
+      return
+    }
+
+    const hasActiveTracking = await this.emailTrackingService.hasActiveTracking({
+      contextType: 'ORDER',
+      contextId: order.orderId,
+      emailType: 'CANCELLED_ORDER_NOTIFICATION',
+    })
+    if (hasActiveTracking) {
+      this.logger.log(`Skipped duplicate cancelled notification for order ${order.orderId}.`)
+      return
+    }
+
+    const items = await this.findOrderItems(order.orderId)
+    const result = await this.sesMailService.sendCancelledOrderNotificationEmail({
+      order,
+      items,
+      cancelledAt: detail.cancelledAt,
+    })
+
+    if (result.status === 'SENT') {
+      this.logger.log(`Cancelled notification email sent for order ${order.orderId}.`)
+      return
+    }
+
+    this.logger.warn(
+      `Best-effort cancelled notification for order ${order.orderId} finished with status=${result.status}: ${result.reason ?? 'unknown-reason'}.`,
     )
   }
 
