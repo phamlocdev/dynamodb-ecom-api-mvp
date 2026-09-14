@@ -1,4 +1,5 @@
-import { EventBridgeEvent } from 'aws-lambda'
+import type { EventBridgeEvent, SQSEvent, SQSBatchResponse } from 'aws-lambda'
+import { handleEventBridgeSqsBatch } from './event-consumers/eventbridge-sqs-batch'
 import { OrderNotificationWorkerService } from './notifications/order-notification-worker.service'
 import { createOrderNotificationWorkerApp } from './worker.bootstrap'
 
@@ -24,7 +25,7 @@ async function getWorkerService(): Promise<OrderNotificationWorkerService> {
   return workerServicePromise
 }
 
-export async function handler(
+async function handleEventBridgeEvent(
   event: EventBridgeEvent<
     'OrderShipped' | 'OrderCancelled',
     OrderShippedEventDetail | OrderCancelledEventDetail
@@ -37,4 +38,11 @@ export async function handler(
   }
 
   await worker.handleOrderShippedEvent(event.detail ?? {})
+}
+
+export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
+  return handleEventBridgeSqsBatch<
+    'OrderShipped' | 'OrderCancelled',
+    OrderShippedEventDetail | OrderCancelledEventDetail
+  >(event, 'order-notification-worker', handleEventBridgeEvent)
 }

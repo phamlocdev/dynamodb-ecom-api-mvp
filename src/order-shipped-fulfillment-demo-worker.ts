@@ -1,4 +1,5 @@
-import type { EventBridgeEvent } from 'aws-lambda'
+import type { EventBridgeEvent, SQSEvent, SQSBatchResponse } from 'aws-lambda'
+import { handleEventBridgeSqsBatch } from './event-consumers/eventbridge-sqs-batch'
 import { runIdempotentEventConsumer } from './event-consumers/event-consumer-idempotency'
 
 interface OrderShippedEventDetail {
@@ -6,7 +7,7 @@ interface OrderShippedEventDetail {
   shippedAt?: unknown
 }
 
-export async function handler(
+async function handleEventBridgeEvent(
   event: EventBridgeEvent<'OrderShipped', OrderShippedEventDetail>,
 ): Promise<void> {
   const worker = 'order-shipped-fulfillment-demo-worker'
@@ -62,4 +63,12 @@ function assertDemoWorkerNotForcedToFail(worker: string): void {
     error.name = 'TimeoutError'
     throw error
   }
+}
+
+export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
+  return handleEventBridgeSqsBatch(
+    event,
+    'order-shipped-fulfillment-demo-worker',
+    handleEventBridgeEvent,
+  )
 }

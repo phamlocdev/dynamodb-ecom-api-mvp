@@ -5,11 +5,8 @@ import {
 } from '@aws-sdk/client-cloudformation'
 import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge'
 import {
-  AddPermissionCommand,
   GetFunctionConfigurationCommand,
-  GetPolicyCommand,
   LambdaClient,
-  RemovePermissionCommand,
   UpdateFunctionConfigurationCommand,
   type EnvironmentResponse,
 } from '@aws-sdk/client-lambda'
@@ -38,15 +35,12 @@ type StackResources = {
   cancellationInventoryDemoWorkerFunctionName: string
   cancellationAccountingDemoWorkerFunctionName: string
   eventTargetDlqUrl: string
-  workerFailureDlqUrl: string
-}
-
-type EventBridgePermissionStatement = {
-  Sid: string
-  Effect?: string
-  Action?: string
-  Principal?: { Service?: string } | string
-  Condition?: Record<string, Record<string, string>>
+  orderShippedNotificationDlqUrl: string
+  orderShippedAnalyticsDlqUrl: string
+  orderShippedFulfillmentDlqUrl: string
+  orderCancelledNotificationDlqUrl: string
+  orderCancelledInventoryDlqUrl: string
+  orderCancelledAccountingDlqUrl: string
 }
 
 type EmailTrackingItem = {
@@ -154,39 +148,18 @@ async function testDeliveryFailed(input: {
   timeoutSeconds: number
   deleteReceived: boolean
 }): Promise<void> {
-  const lambdaClient = new LambdaClient({ region: input.region })
-  const removedStatements = await removeEventBridgeInvokePermissions(
-    lambdaClient,
-    input.resources.orderNotificationWorkerFunctionName,
-  )
-
-  if (removedStatements.length === 0) {
-    throw new Error('No EventBridge invoke permission statements were found on the worker Lambda.')
-  }
-
   console.log(
-    `Removed ${removedStatements.length} EventBridge Lambda permission statement(s) to force target delivery failure.`,
+    'EventBridge now targets SQS queues. To test delivery failure, temporarily break the EventBridge-to-SQS target permission or target queue out-of-band, then publish an event.',
   )
+  await publishOrderShippedEvent(input.region, input.orderId)
+  const messages = await waitForQueueMessages({
+    region: input.region,
+    queueUrl: input.resources.eventTargetDlqUrl,
+    timeoutSeconds: input.timeoutSeconds,
+    deleteReceived: input.deleteReceived,
+  })
 
-  try {
-    await wait(5000)
-    await publishOrderShippedEvent(input.region, input.orderId)
-    const messages = await waitForQueueMessages({
-      region: input.region,
-      queueUrl: input.resources.eventTargetDlqUrl,
-      timeoutSeconds: input.timeoutSeconds,
-      deleteReceived: input.deleteReceived,
-    })
-
-    printMessages('eventTargetDlq', messages)
-  } finally {
-    await restoreEventBridgeInvokePermissions(
-      lambdaClient,
-      input.resources.orderNotificationWorkerFunctionName,
-      removedStatements,
-    )
-    console.log('Restored EventBridge Lambda permission statement(s).')
-  }
+  printMessages('eventTargetDlq', messages)
 }
 
 async function testProcessingFailed(input: {
@@ -215,12 +188,12 @@ async function testProcessingFailed(input: {
     await publishOrderShippedEvent(input.region, input.orderId)
     const messages = await waitForQueueMessages({
       region: input.region,
-      queueUrl: input.resources.workerFailureDlqUrl,
+      queueUrl: input.resources.orderShippedNotificationDlqUrl,
       timeoutSeconds: input.timeoutSeconds,
       deleteReceived: input.deleteReceived,
     })
 
-    printMessages('workerFailureDlq', messages)
+    printMessages('orderShippedNotificationDlq', messages)
   } finally {
     await updateLambdaEnvironment(lambdaClient, functionName, originalEnvironment?.Variables ?? {})
     console.log('Restored original worker Lambda environment variables.')
@@ -499,12 +472,57 @@ async function resolveStackResources(stackName: string, region: string): Promise
         Boolean(resource.LogicalResourceId?.includes('OrderNotificationEventTargetDlq')),
       'OrderNotification event target DLQ',
     ),
-    workerFailureDlqUrl: requirePhysicalResourceId(
+    orderShippedNotificationDlqUrl: requirePhysicalResourceId(
       resources,
       (resource) =>
         resource.ResourceType === 'AWS::SQS::Queue' &&
-        Boolean(resource.LogicalResourceId?.includes('OrderNotificationWorkerFailureDlq')),
-      'OrderNotification worker failure DLQ',
+        Boolean(
+          resource.LogicalResourceId?.includes('OrderNotificationOrderShippedNotificationDlq'),
+        ),
+      'OrderShipped notification worker DLQ',
+    ),
+    orderShippedAnalyticsDlqUrl: requirePhysicalResourceId(
+      resources,
+      (resource) =>
+        resource.ResourceType === 'AWS::SQS::Queue' &&
+        Boolean(resource.LogicalResourceId?.includes('OrderNotificationOrderShippedAnalyticsDlq')),
+      'OrderShipped analytics worker DLQ',
+    ),
+    orderShippedFulfillmentDlqUrl: requirePhysicalResourceId(
+      resources,
+      (resource) =>
+        resource.ResourceType === 'AWS::SQS::Queue' &&
+        Boolean(
+          resource.LogicalResourceId?.includes('OrderNotificationOrderShippedFulfillmentDlq'),
+        ),
+      'OrderShipped fulfillment worker DLQ',
+    ),
+    orderCancelledNotificationDlqUrl: requirePhysicalResourceId(
+      resources,
+      (resource) =>
+        resource.ResourceType === 'AWS::SQS::Queue' &&
+        Boolean(
+          resource.LogicalResourceId?.includes('OrderNotificationOrderCancelledNotificationDlq'),
+        ),
+      'OrderCancelled notification worker DLQ',
+    ),
+    orderCancelledInventoryDlqUrl: requirePhysicalResourceId(
+      resources,
+      (resource) =>
+        resource.ResourceType === 'AWS::SQS::Queue' &&
+        Boolean(
+          resource.LogicalResourceId?.includes('OrderNotificationOrderCancelledInventoryDlq'),
+        ),
+      'OrderCancelled inventory worker DLQ',
+    ),
+    orderCancelledAccountingDlqUrl: requirePhysicalResourceId(
+      resources,
+      (resource) =>
+        resource.ResourceType === 'AWS::SQS::Queue' &&
+        Boolean(
+          resource.LogicalResourceId?.includes('OrderNotificationOrderCancelledAccountingDlq'),
+        ),
+      'OrderCancelled accounting worker DLQ',
     ),
   }
 }
@@ -521,71 +539,6 @@ function requirePhysicalResourceId(
   }
 
   return physicalResourceId
-}
-
-async function removeEventBridgeInvokePermissions(
-  lambdaClient: LambdaClient,
-  functionName: string,
-): Promise<EventBridgePermissionStatement[]> {
-  const response = await lambdaClient.send(new GetPolicyCommand({ FunctionName: functionName }))
-  const policy = JSON.parse(response.Policy ?? '{}') as {
-    Statement?: EventBridgePermissionStatement[]
-  }
-  const statements = (policy.Statement ?? []).filter(isEventBridgeInvokeStatement)
-
-  for (const statement of statements) {
-    await lambdaClient.send(
-      new RemovePermissionCommand({
-        FunctionName: functionName,
-        StatementId: statement.Sid,
-      }),
-    )
-  }
-
-  return statements
-}
-
-async function restoreEventBridgeInvokePermissions(
-  lambdaClient: LambdaClient,
-  functionName: string,
-  statements: EventBridgePermissionStatement[],
-): Promise<void> {
-  for (const statement of statements) {
-    const sourceArn = readSourceArn(statement)
-    if (!sourceArn) {
-      console.warn(`Skipped restoring statement ${statement.Sid} because SourceArn was not found.`)
-      continue
-    }
-
-    await lambdaClient.send(
-      new AddPermissionCommand({
-        FunctionName: functionName,
-        StatementId: statement.Sid,
-        Action: statement.Action ?? 'lambda:InvokeFunction',
-        Principal: 'events.amazonaws.com',
-        SourceArn: sourceArn,
-      }),
-    )
-  }
-}
-
-function isEventBridgeInvokeStatement(statement: EventBridgePermissionStatement): boolean {
-  const service =
-    typeof statement.Principal === 'object' && statement.Principal !== null
-      ? statement.Principal.Service
-      : statement.Principal
-
-  return service === 'events.amazonaws.com' && Boolean(readSourceArn(statement))
-}
-
-function readSourceArn(statement: EventBridgePermissionStatement): string | undefined {
-  const condition = statement.Condition ?? {}
-  return (
-    condition.ArnLike?.['AWS:SourceArn'] ??
-    condition.ArnLike?.['aws:SourceArn'] ??
-    condition.ArnEquals?.['AWS:SourceArn'] ??
-    condition.ArnEquals?.['aws:SourceArn']
-  )
 }
 
 async function updateLambdaEnvironment(
@@ -921,7 +874,17 @@ function groupTrackingByRecipient(items: EmailTrackingItem[]): Map<string, Email
 
 async function purgeTestQueues(resources: StackResources, region: string): Promise<void> {
   const sqsClient = new SQSClient({ region })
-  for (const queueUrl of [resources.eventTargetDlqUrl, resources.workerFailureDlqUrl]) {
+  const queueUrls = [
+    resources.eventTargetDlqUrl,
+    resources.orderShippedNotificationDlqUrl,
+    resources.orderShippedAnalyticsDlqUrl,
+    resources.orderShippedFulfillmentDlqUrl,
+    resources.orderCancelledNotificationDlqUrl,
+    resources.orderCancelledInventoryDlqUrl,
+    resources.orderCancelledAccountingDlqUrl,
+  ]
+
+  for (const queueUrl of queueUrls) {
     try {
       await sqsClient.send(new PurgeQueueCommand({ QueueUrl: queueUrl }))
       console.log(`Purged ${queueUrl}.`)

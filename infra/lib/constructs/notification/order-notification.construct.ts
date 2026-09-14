@@ -3,7 +3,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
-import * as destinations from 'aws-cdk-lib/aws-lambda-destinations'
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
@@ -125,22 +125,26 @@ export class OrderNotificationConstruct extends Construct {
       retentionPeriod: cdk.Duration.days(14),
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     })
-    const workerFailureDlq = new sqs.Queue(this, 'OrderNotificationWorkerFailureDlq', {
-      retentionPeriod: cdk.Duration.days(14),
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    })
-    const lambdaTargetOptions: eventTargets.LambdaFunctionProps = {
+
+    const orderShippedNotificationQueue = this.createWorkerQueue('OrderShippedNotification')
+    const orderShippedAnalyticsQueue = this.createWorkerQueue('OrderShippedAnalytics')
+    const orderShippedFulfillmentQueue = this.createWorkerQueue('OrderShippedFulfillment')
+    const orderCancelledNotificationQueue = this.createWorkerQueue('OrderCancelledNotification')
+    const orderCancelledInventoryQueue = this.createWorkerQueue('OrderCancelledInventory')
+    const orderCancelledAccountingQueue = this.createWorkerQueue('OrderCancelledAccounting')
+
+    const sqsTargetOptions: eventTargets.SqsQueueProps = {
       retryAttempts: 3,
       maxEventAge: cdk.Duration.hours(2),
       deadLetterQueue: eventTargetDlq,
     }
 
-    new lambda.EventInvokeConfig(this, 'WorkerEventInvokeConfig', {
-      function: this.orderNotificationWorker,
-      retryAttempts: 2,
-      maxEventAge: cdk.Duration.hours(2),
-      onFailure: new destinations.SqsDestination(workerFailureDlq),
-    })
+    this.addWorkerEventSource(this.orderNotificationWorker, orderShippedNotificationQueue)
+    this.addWorkerEventSource(this.orderNotificationWorker, orderCancelledNotificationQueue)
+    this.addWorkerEventSource(this.analyticsDemoWorker, orderShippedAnalyticsQueue)
+    this.addWorkerEventSource(this.fulfillmentDemoWorker, orderShippedFulfillmentQueue)
+    this.addWorkerEventSource(this.cancellationInventoryDemoWorker, orderCancelledInventoryQueue)
+    this.addWorkerEventSource(this.cancellationAccountingDemoWorker, orderCancelledAccountingQueue)
 
     props.ordersTable.grantReadData(this.orderNotificationWorker)
     props.orderItemsTable.grantReadData(this.orderNotificationWorker)
@@ -157,9 +161,9 @@ export class OrderNotificationConstruct extends Construct {
         detailType: ['OrderShipped'],
       },
       targets: [
-        new eventTargets.LambdaFunction(this.orderNotificationWorker, lambdaTargetOptions),
-        new eventTargets.LambdaFunction(this.analyticsDemoWorker, lambdaTargetOptions),
-        new eventTargets.LambdaFunction(this.fulfillmentDemoWorker, lambdaTargetOptions),
+        new eventTargets.SqsQueue(orderShippedNotificationQueue.queue, sqsTargetOptions),
+        new eventTargets.SqsQueue(orderShippedAnalyticsQueue.queue, sqsTargetOptions),
+        new eventTargets.SqsQueue(orderShippedFulfillmentQueue.queue, sqsTargetOptions),
       ],
     })
 
@@ -171,9 +175,7 @@ export class OrderNotificationConstruct extends Construct {
     new events.Rule(this, 'OrderCancelledInventoryRule', {
       eventBus: props.eventBus,
       eventPattern: orderCancelledEventPattern,
-      targets: [
-        new eventTargets.LambdaFunction(this.cancellationInventoryDemoWorker, lambdaTargetOptions),
-      ],
+      targets: [new eventTargets.SqsQueue(orderCancelledInventoryQueue.queue, sqsTargetOptions)],
     })
 
     new events.Rule(this, 'OrderCancelledAccountingRule', {
@@ -184,15 +186,44 @@ export class OrderNotificationConstruct extends Construct {
           totalAmount: [{ numeric: ['>=', 10000000] }],
         },
       },
-      targets: [
-        new eventTargets.LambdaFunction(this.cancellationAccountingDemoWorker, lambdaTargetOptions),
-      ],
+      targets: [new eventTargets.SqsQueue(orderCancelledAccountingQueue.queue, sqsTargetOptions)],
     })
 
     new events.Rule(this, 'OrderCancelledNotificationRule', {
       eventBus: props.eventBus,
       eventPattern: orderCancelledEventPattern,
-      targets: [new eventTargets.LambdaFunction(this.orderNotificationWorker, lambdaTargetOptions)],
+      targets: [new eventTargets.SqsQueue(orderCancelledNotificationQueue.queue, sqsTargetOptions)],
     })
+  }
+
+  private createWorkerQueue(idPrefix: string): { queue: sqs.Queue; dlq: sqs.Queue } {
+    const dlq = new sqs.Queue(this, `${idPrefix}Dlq`, {
+      retentionPeriod: cdk.Duration.days(14),
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    })
+
+    const queue = new sqs.Queue(this, `${idPrefix}Queue`, {
+      visibilityTimeout: cdk.Duration.seconds(90),
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      deadLetterQueue: {
+        queue: dlq,
+        maxReceiveCount: 3,
+      },
+    })
+
+    return { queue, dlq }
+  }
+
+  private addWorkerEventSource(
+    worker: nodejs.NodejsFunction,
+    queuePair: { queue: sqs.Queue },
+  ): void {
+    worker.addEventSource(
+      new lambdaEventSources.SqsEventSource(queuePair.queue, {
+        batchSize: 1,
+        reportBatchItemFailures: true,
+      }),
+    )
+    queuePair.queue.grantConsumeMessages(worker)
   }
 }
