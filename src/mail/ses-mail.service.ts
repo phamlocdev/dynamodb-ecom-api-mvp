@@ -7,6 +7,7 @@ import * as path from 'path'
 import { EmailTrackingService } from './email-tracking.service'
 import {
   EmailContextType,
+  EmailIdempotencyMode,
   EmailSendResult,
   EmailType,
   SendCancelledOrderNotificationEmailInput,
@@ -145,6 +146,7 @@ export class SesMailService {
       subject: this.shippedOrderNotificationSubject,
       templateView: buildShippedOrderNotificationTemplateView(input),
       resendOfByRecipient: resolveResendOfByRecipient(input, recipientEmails),
+      idempotencyMode: input.idempotencyMode,
     })
   }
 
@@ -165,6 +167,7 @@ export class SesMailService {
       subject: this.cancelledOrderNotificationSubject,
       templateView: buildCancelledOrderNotificationTemplateView(input),
       resendOfByRecipient: resolveResendOfByRecipient(input, recipientEmails),
+      idempotencyMode: input.idempotencyMode,
     })
   }
 
@@ -191,6 +194,7 @@ export class SesMailService {
     subject: string
     templateView: MailTemplateView
     resendOfByRecipient?: Record<string, string>
+    idempotencyMode?: EmailIdempotencyMode
   }): Promise<EmailSendResult> {
     if (!this.isEnabled) {
       await this.createSkippedTrackingItems(input, 'ses-disabled')
@@ -220,6 +224,7 @@ export class SesMailService {
     }
 
     let trackingEmailIds: string[] = []
+    let claimedRecipientEmails: string[] = []
 
     try {
       const trackingItems = await this.emailTrackingService.createTrackingItems({
@@ -230,8 +235,18 @@ export class SesMailService {
         status: 'PENDING',
         configurationSetName: this.configurationSetName,
         resendOfByRecipient: input.resendOfByRecipient,
+        idempotencyMode: input.idempotencyMode,
       })
       trackingEmailIds = trackingItems.map((item) => item.emailId)
+      claimedRecipientEmails = trackingItems.map((item) => item.recipientEmail)
+
+      if (claimedRecipientEmails.length === 0) {
+        return {
+          status: 'SKIPPED',
+          reason: 'duplicate-notification-email',
+          recipientEmails: input.recipientEmails,
+        }
+      }
 
       const template = await this.getTemplate(input.emailType)
       const html = template(input.templateView)
@@ -239,7 +254,7 @@ export class SesMailService {
       const commandInput: SendEmailCommandInput = {
         FromEmailAddress: this.fromEmail,
         Destination: {
-          ToAddresses: input.recipientEmails,
+          ToAddresses: claimedRecipientEmails,
         },
         ...(this.configurationSetName ? { ConfigurationSetName: this.configurationSetName } : {}),
         Content: {
@@ -271,12 +286,12 @@ export class SesMailService {
       return {
         status: 'SENT',
         messageId: response.MessageId,
-        recipientEmails: input.recipientEmails,
+        recipientEmails: claimedRecipientEmails,
       }
     } catch (error) {
       this.logger.error(`Failed to send ${input.emailType} for ${input.contextId}.`, error)
 
-      const failureReason = error instanceof Error ? error.message : 'ses-send-failed'
+      const failureReason = resolveFailureReason(error)
       if (trackingEmailIds.length > 0) {
         await this.emailTrackingService.markFailed(trackingEmailIds, failureReason)
       }
@@ -284,7 +299,7 @@ export class SesMailService {
       return {
         status: 'FAILED',
         reason: failureReason,
-        recipientEmails: input.recipientEmails,
+        recipientEmails: claimedRecipientEmails,
       }
     }
   }
@@ -296,6 +311,7 @@ export class SesMailService {
       contextId: string
       recipientEmails: string[]
       resendOfByRecipient?: Record<string, string>
+      idempotencyMode?: EmailIdempotencyMode
     },
     reason: string,
   ): Promise<void> {
@@ -313,6 +329,7 @@ export class SesMailService {
       configurationSetName: this.configurationSetName,
       failureReason: reason,
       resendOfByRecipient: input.resendOfByRecipient,
+      idempotencyMode: input.idempotencyMode,
     })
   }
 
@@ -434,6 +451,14 @@ function formatOrderTimestamp(timestamp: string): string {
 
 function isMissingFileError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+}
+
+function resolveFailureReason(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'ses-send-failed'
+  }
+
+  return error.name ? `${error.name}: ${error.message}` : error.message
 }
 
 function resolveRecipientEmails(

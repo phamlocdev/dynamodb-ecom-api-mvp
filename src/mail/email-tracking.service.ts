@@ -1,13 +1,20 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
-import { randomUUID } from 'crypto'
+import {
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb'
+import { createHash, randomUUID } from 'crypto'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import {
   EMAIL_DELIVERY_STATUSES,
   EmailContextType,
   EmailDeliveryStatistics,
   EmailDeliveryStatus,
+  EmailIdempotencyMode,
   EmailTracking,
   EmailTrackingView,
   EmailType,
@@ -75,6 +82,7 @@ export class EmailTrackingService {
     configurationSetName?: string
     failureReason?: string
     resendOfByRecipient?: Record<string, string>
+    idempotencyMode?: EmailIdempotencyMode
   }): Promise<EmailTracking[]> {
     const createdAt = new Date().toISOString()
     const contextKey = buildContextKey(input.contextType, input.contextId)
@@ -85,9 +93,17 @@ export class EmailTrackingService {
       input.recipientEmails,
     )
     const items = input.recipientEmails.map((recipientEmail) => ({
-      emailId: randomUUID(),
+      emailId:
+        input.idempotencyMode === 'claim-once'
+          ? buildClaimOnceEmailId(
+              input.contextType,
+              input.contextId,
+              input.emailType,
+              recipientEmail,
+            )
+          : randomUUID(),
       emailType: input.emailType,
-      recipientEmail,
+      recipientEmail: recipientEmail.trim().toLowerCase(),
       status: input.status,
       contextType: input.contextType,
       contextId: input.contextId,
@@ -101,18 +117,13 @@ export class EmailTrackingService {
       ...(input.status === 'FAILED' ? { failedAt: createdAt } : {}),
     }))
 
-    await Promise.all(
-      items.map((item) =>
-        this.dynamoDbService.documentClient.send(
-          new PutCommand({
-            TableName: this.tableName,
-            Item: item,
-            ConditionExpression: 'attribute_not_exists(#emailId)',
-            ExpressionAttributeNames: { '#emailId': 'emailId' },
-          }),
-        ),
-      ),
-    )
+    if (input.idempotencyMode === 'claim-once') {
+      return (
+        await Promise.all(items.map((item) => this.createClaimOnceTrackingItem(item)))
+      ).filter((item): item is EmailTracking => Boolean(item))
+    }
+
+    await Promise.all(items.map((item) => this.putTrackingItem(item)))
 
     return items
   }
@@ -375,6 +386,110 @@ export class EmailTrackingService {
       isRetryable: isRetryableEmailTracking(item),
     }
   }
+
+  private async putTrackingItem(item: EmailTracking): Promise<void> {
+    await this.dynamoDbService.documentClient.send(
+      new PutCommand({
+        TableName: this.tableName,
+        Item: item,
+        ConditionExpression: 'attribute_not_exists(#emailId)',
+        ExpressionAttributeNames: { '#emailId': 'emailId' },
+      }),
+    )
+  }
+
+  private async createClaimOnceTrackingItem(
+    item: EmailTracking,
+  ): Promise<EmailTracking | undefined> {
+    try {
+      await this.putTrackingItem(item)
+      return item
+    } catch (error) {
+      if (!isConditionalCheckFailed(error)) {
+        throw error
+      }
+    }
+
+    const existing = await this.findByEmailId(item.emailId)
+    if (
+      !existing ||
+      existing.status !== 'FAILED' ||
+      !isRetryableEmailFailureReason(existing.failureReason)
+    ) {
+      return undefined
+    }
+
+    return this.reclaimFailedTrackingItem(existing, item)
+  }
+
+  private async findByEmailId(emailId: string): Promise<EmailTracking | undefined> {
+    const response = await this.dynamoDbService.documentClient.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { emailId },
+      }),
+    )
+
+    return response.Item as EmailTracking | undefined
+  }
+
+  private async reclaimFailedTrackingItem(
+    existing: EmailTracking,
+    item: EmailTracking,
+  ): Promise<EmailTracking | undefined> {
+    const updatedAt = new Date().toISOString()
+    const setExpressions = [
+      '#status = :pending',
+      '#updatedAt = :updatedAt',
+      '#attemptNumber = :attemptNumber',
+    ]
+    const removeExpressions = ['#failureReason', '#failedAt']
+    const expressionAttributeNames: Record<string, string> = {
+      '#status': 'status',
+      '#updatedAt': 'updatedAt',
+      '#attemptNumber': 'attemptNumber',
+      '#failureReason': 'failureReason',
+      '#failedAt': 'failedAt',
+    }
+    const expressionAttributeValues: Record<string, unknown> = {
+      ':pending': 'PENDING',
+      ':failed': 'FAILED',
+      ':updatedAt': updatedAt,
+      ':attemptNumber': (existing.attemptNumber ?? 0) + 1,
+      ':failureReason': existing.failureReason,
+    }
+
+    if (item.configurationSetName) {
+      setExpressions.push('#configurationSetName = :configurationSetName')
+      expressionAttributeNames['#configurationSetName'] = 'configurationSetName'
+      expressionAttributeValues[':configurationSetName'] = item.configurationSetName
+    } else {
+      removeExpressions.push('#configurationSetName')
+      expressionAttributeNames['#configurationSetName'] = 'configurationSetName'
+    }
+
+    try {
+      const response = await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { emailId: existing.emailId },
+          UpdateExpression: `SET ${setExpressions.join(', ')} REMOVE ${removeExpressions.join(', ')}`,
+          ConditionExpression: '#status = :failed AND #failureReason = :failureReason',
+          ExpressionAttributeNames: expressionAttributeNames,
+          ExpressionAttributeValues: expressionAttributeValues,
+          ReturnValues: 'ALL_NEW',
+        }),
+      )
+
+      return response.Attributes as EmailTracking | undefined
+    } catch (error) {
+      if (isConditionalCheckFailed(error)) {
+        return undefined
+      }
+
+      throw error
+    }
+  }
 }
 
 export function isRetryableEmailTracking(item: EmailTracking): boolean {
@@ -404,6 +519,56 @@ export function buildOrderContextKey(orderId: string): string {
 
 export function buildUserContextKey(userId: string): string {
   return buildContextKey('USER', userId)
+}
+
+export function buildClaimOnceEmailId(
+  contextType: EmailContextType,
+  contextId: string,
+  emailType: EmailType,
+  recipientEmail: string,
+): string {
+  const rawKey = [
+    contextType.trim().toUpperCase(),
+    contextId.trim(),
+    emailType.trim().toUpperCase(),
+    recipientEmail.trim().toLowerCase(),
+  ].join('#')
+  const digest = createHash('sha256').update(rawKey).digest('hex')
+
+  return `claim-once#${digest}`
+}
+
+export function isRetryableEmailFailureReason(reason: string | undefined): boolean {
+  if (!reason) {
+    return false
+  }
+
+  const normalizedReason = reason.toLowerCase()
+  return [
+    'throttl',
+    'too many requests',
+    'timeout',
+    'timed out',
+    'econnreset',
+    'etimedout',
+    'enotfound',
+    'network',
+    'service unavailable',
+    'temporarily unavailable',
+    'internal server error',
+    'request limit',
+    'rate exceeded',
+    '5xx',
+  ].some((token) => normalizedReason.includes(token))
+}
+
+function isConditionalCheckFailed(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    error.name === 'ConditionalCheckFailedException'
+  )
 }
 
 function createEmptyStatistics(emailTypes: EmailType[]): EmailDeliveryStatistics {

@@ -3,7 +3,9 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as events from 'aws-cdk-lib/aws-events'
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
+import * as destinations from 'aws-cdk-lib/aws-lambda-destinations'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
+import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
 import {
@@ -18,6 +20,7 @@ export interface OrderNotificationConstructProps {
   ordersTable: dynamodb.ITable
   orderItemsTable: dynamodb.ITable
   emailTrackingTable: dynamodb.ITable
+  eventConsumerIdempotencyTable: dynamodb.ITable
 }
 
 export class OrderNotificationConstruct extends Construct {
@@ -63,6 +66,9 @@ export class OrderNotificationConstruct extends Construct {
       bundling: createNodejsBundling({
         afterBundling: () => removeGeneratedSourceArtifacts(),
       }),
+      environment: {
+        EVENT_CONSUMER_IDEMPOTENCY_TABLE: props.eventConsumerIdempotencyTable.tableName,
+      },
     })
 
     this.fulfillmentDemoWorker = new nodejs.NodejsFunction(this, 'FulfillmentDemoWorker', {
@@ -74,6 +80,9 @@ export class OrderNotificationConstruct extends Construct {
       bundling: createNodejsBundling({
         afterBundling: () => removeGeneratedSourceArtifacts(),
       }),
+      environment: {
+        EVENT_CONSUMER_IDEMPOTENCY_TABLE: props.eventConsumerIdempotencyTable.tableName,
+      },
     })
 
     this.cancellationInventoryDemoWorker = new nodejs.NodejsFunction(
@@ -88,6 +97,9 @@ export class OrderNotificationConstruct extends Construct {
         bundling: createNodejsBundling({
           afterBundling: () => removeGeneratedSourceArtifacts(),
         }),
+        environment: {
+          EVENT_CONSUMER_IDEMPOTENCY_TABLE: props.eventConsumerIdempotencyTable.tableName,
+        },
       },
     )
 
@@ -103,12 +115,40 @@ export class OrderNotificationConstruct extends Construct {
         bundling: createNodejsBundling({
           afterBundling: () => removeGeneratedSourceArtifacts(),
         }),
+        environment: {
+          EVENT_CONSUMER_IDEMPOTENCY_TABLE: props.eventConsumerIdempotencyTable.tableName,
+        },
       },
     )
+
+    const eventTargetDlq = new sqs.Queue(this, 'OrderNotificationEventTargetDlq', {
+      retentionPeriod: cdk.Duration.days(14),
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    })
+    const workerFailureDlq = new sqs.Queue(this, 'OrderNotificationWorkerFailureDlq', {
+      retentionPeriod: cdk.Duration.days(14),
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    })
+    const lambdaTargetOptions: eventTargets.LambdaFunctionProps = {
+      retryAttempts: 3,
+      maxEventAge: cdk.Duration.hours(2),
+      deadLetterQueue: eventTargetDlq,
+    }
+
+    new lambda.EventInvokeConfig(this, 'WorkerEventInvokeConfig', {
+      function: this.orderNotificationWorker,
+      retryAttempts: 2,
+      maxEventAge: cdk.Duration.hours(2),
+      onFailure: new destinations.SqsDestination(workerFailureDlq),
+    })
 
     props.ordersTable.grantReadData(this.orderNotificationWorker)
     props.orderItemsTable.grantReadData(this.orderNotificationWorker)
     props.emailTrackingTable.grantReadWriteData(this.orderNotificationWorker)
+    props.eventConsumerIdempotencyTable.grantReadWriteData(this.analyticsDemoWorker)
+    props.eventConsumerIdempotencyTable.grantReadWriteData(this.fulfillmentDemoWorker)
+    props.eventConsumerIdempotencyTable.grantReadWriteData(this.cancellationInventoryDemoWorker)
+    props.eventConsumerIdempotencyTable.grantReadWriteData(this.cancellationAccountingDemoWorker)
 
     new events.Rule(this, 'OrderShippedRule', {
       eventBus: props.eventBus,
@@ -117,9 +157,9 @@ export class OrderNotificationConstruct extends Construct {
         detailType: ['OrderShipped'],
       },
       targets: [
-        new eventTargets.LambdaFunction(this.orderNotificationWorker),
-        new eventTargets.LambdaFunction(this.analyticsDemoWorker),
-        new eventTargets.LambdaFunction(this.fulfillmentDemoWorker),
+        new eventTargets.LambdaFunction(this.orderNotificationWorker, lambdaTargetOptions),
+        new eventTargets.LambdaFunction(this.analyticsDemoWorker, lambdaTargetOptions),
+        new eventTargets.LambdaFunction(this.fulfillmentDemoWorker, lambdaTargetOptions),
       ],
     })
 
@@ -131,7 +171,9 @@ export class OrderNotificationConstruct extends Construct {
     new events.Rule(this, 'OrderCancelledInventoryRule', {
       eventBus: props.eventBus,
       eventPattern: orderCancelledEventPattern,
-      targets: [new eventTargets.LambdaFunction(this.cancellationInventoryDemoWorker)],
+      targets: [
+        new eventTargets.LambdaFunction(this.cancellationInventoryDemoWorker, lambdaTargetOptions),
+      ],
     })
 
     new events.Rule(this, 'OrderCancelledAccountingRule', {
@@ -142,13 +184,15 @@ export class OrderNotificationConstruct extends Construct {
           totalAmount: [{ numeric: ['>=', 10000000] }],
         },
       },
-      targets: [new eventTargets.LambdaFunction(this.cancellationAccountingDemoWorker)],
+      targets: [
+        new eventTargets.LambdaFunction(this.cancellationAccountingDemoWorker, lambdaTargetOptions),
+      ],
     })
 
     new events.Rule(this, 'OrderCancelledNotificationRule', {
       eventBus: props.eventBus,
       eventPattern: orderCancelledEventPattern,
-      targets: [new eventTargets.LambdaFunction(this.orderNotificationWorker)],
+      targets: [new eventTargets.LambdaFunction(this.orderNotificationWorker, lambdaTargetOptions)],
     })
   }
 }

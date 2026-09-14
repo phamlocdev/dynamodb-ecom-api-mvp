@@ -11,6 +11,7 @@ export class DynamoDbConstruct extends Construct {
   readonly ordersTable: dynamodb.Table
   readonly orderItemsTable: dynamodb.Table
   readonly emailTrackingTable: dynamodb.Table
+  readonly eventConsumerIdempotencyTable: dynamodb.Table
   readonly inventoryTable: dynamodb.Table
   readonly userProfilesTable: dynamodb.Table
 
@@ -109,6 +110,14 @@ export class DynamoDbConstruct extends Construct {
       indexName: 'GSI_EmailTypeStatus',
       partitionKey: { name: 'emailType', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'status', type: dynamodb.AttributeType.STRING },
+    })
+
+    this.eventConsumerIdempotencyTable = new dynamodb.Table(this, 'EventConsumerIdempotencyTable', {
+      tableName: infraEnv.eventConsumerIdempotencyTableName,
+      partitionKey: { name: 'idempotencyKey', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
     this.inventoryTable = new dynamodb.Table(this, 'InventoryTable', {

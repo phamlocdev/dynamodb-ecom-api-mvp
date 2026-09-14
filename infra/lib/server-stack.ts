@@ -73,6 +73,7 @@ export class ServerStack extends cdk.Stack {
       ordersTable: data.ordersTable,
       orderItemsTable: data.orderItemsTable,
       emailTrackingTable: data.emailTrackingTable,
+      eventConsumerIdempotencyTable: data.eventConsumerIdempotencyTable,
     })
     notification.grantSendEmail(orderNotification.orderNotificationWorker)
 
@@ -101,6 +102,10 @@ export class ServerStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'EmailTrackingTableName', {
       value: data.emailTrackingTable.tableName,
+    })
+
+    new cdk.CfnOutput(this, 'EventConsumerIdempotencyTableName', {
+      value: data.eventConsumerIdempotencyTable.tableName,
     })
 
     new cdk.CfnOutput(this, 'CognitoUserPoolId', {

@@ -52,7 +52,7 @@ export class CategoriesController {
   }
 
   @Get()
-  @Public()
+  // @Public()
   @ApiOperation({ summary: 'List categories' })
   @ApiOkResponse({ type: PaginatedCategoryResponseDto })
   findAll(

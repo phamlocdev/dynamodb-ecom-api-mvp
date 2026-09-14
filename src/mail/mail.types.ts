@@ -15,6 +15,7 @@ export interface SendShippedOrderNotificationEmailInput {
   recipientEmails?: string[]
   resendOfEmailId?: string
   resendOfByRecipient?: Record<string, string>
+  idempotencyMode?: EmailIdempotencyMode
 }
 
 export interface SendCancelledOrderNotificationEmailInput {
@@ -24,6 +25,7 @@ export interface SendCancelledOrderNotificationEmailInput {
   recipientEmails?: string[]
   resendOfEmailId?: string
   resendOfByRecipient?: Record<string, string>
+  idempotencyMode?: EmailIdempotencyMode
 }
 
 export interface SendWelcomeNewCustomerEmailInput {
@@ -38,6 +40,7 @@ export interface SendWelcomeNewCustomerEmailInput {
 }
 
 export type EmailSendStatus = 'SENT' | 'SKIPPED' | 'FAILED'
+export type EmailIdempotencyMode = 'claim-once'
 
 export interface EmailSendResult {
   status: EmailSendStatus
