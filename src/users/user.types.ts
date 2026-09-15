@@ -1,4 +1,5 @@
 import { EmailDeliverySummary, EmailType } from '../mail/mail.types'
+import { Permission } from '../auth/permissions'
 
 export type ManagedUser = {
   username: string
@@ -9,6 +10,7 @@ export type ManagedUser = {
   email?: string
   emailVerified: boolean
   groups: string[]
+  permissions: Permission[]
   createdAt?: string
   updatedAt?: string
   welcomeEmailTracking?: EmailDeliverySummary
@@ -33,6 +35,17 @@ export interface UserProfile {
   updatedAt: string
 }
 
+export type UserAccount = {
+  userId: string
+  username: string
+  email?: string
+  name?: string
+  avatarKey?: string
+  permissions: Permission[]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ResendUserEmailResult {
   userId: string
   emailType: EmailType
@@ -40,4 +53,11 @@ export interface ResendUserEmailResult {
   resentCount: number
   status: string
   reason?: string
+}
+
+export type UserPermissionsRecord = {
+  userId: string
+  permissions: Permission[]
+  createdAt: string
+  updatedAt: string
 }

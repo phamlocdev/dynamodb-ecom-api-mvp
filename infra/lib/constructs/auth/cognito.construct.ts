@@ -22,6 +22,7 @@ export interface CognitoConstructProps {
   googleClientId?: string
   googleClientSecret?: string
   emailTrackingTable: dynamodb.ITable
+  userAccountsTable: dynamodb.ITable
 }
 
 export class CognitoConstruct extends Construct {
@@ -29,6 +30,7 @@ export class CognitoConstruct extends Construct {
   readonly userPoolClient: cognito.UserPoolClient
   readonly userPoolDomain: cognito.UserPoolDomain
   readonly postConfirmationHandler: nodejs.NodejsFunction
+  readonly preTokenGenerationHandler: nodejs.NodejsFunction
 
   constructor(scope: Construct, id: string, props: CognitoConstructProps) {
     super(scope, id)
@@ -68,10 +70,12 @@ export class CognitoConstruct extends Construct {
         SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
         SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
         SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
+        USER_ACCOUNTS_TABLE: props.userAccountsTable.tableName,
       },
     })
 
     props.emailTrackingTable.grantReadWriteData(this.postConfirmationHandler)
+    props.userAccountsTable.grantReadWriteData(this.postConfirmationHandler)
     this.postConfirmationHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['cognito-idp:AdminAddUserToGroup'],
@@ -90,6 +94,25 @@ export class CognitoConstruct extends Construct {
       this.postConfirmationHandler,
     )
 
+    this.preTokenGenerationHandler = new nodejs.NodejsFunction(this, 'PreTokenGenerationHandler', {
+      runtime: lambda.Runtime.NODEJS_24_X,
+      entry: sourceEntryPath('cognito', 'pre-token-generation.ts'),
+      handler: 'handler',
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 256,
+      bundling: createNodejsBundling(),
+      environment: {
+        USER_ACCOUNTS_TABLE: props.userAccountsTable.tableName,
+      },
+    })
+    props.userAccountsTable.grantReadData(this.preTokenGenerationHandler)
+
+    this.userPool.addTrigger(
+      cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG,
+      this.preTokenGenerationHandler,
+      cognito.LambdaVersion.V2_0,
+    )
+
     const supportedIdentityProviders = [cognito.UserPoolClientIdentityProvider.COGNITO]
     const googleProvider =
       props.googleClientId && props.googleClientSecret
@@ -98,6 +121,11 @@ export class CognitoConstruct extends Construct {
             clientId: props.googleClientId,
             clientSecretValue: cdk.SecretValue.unsafePlainText(props.googleClientSecret),
             scopes: ['openid', 'email', 'profile'],
+            attributeMapping: {
+              email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+              emailVerified: cognito.ProviderAttribute.GOOGLE_EMAIL_VERIFIED,
+              fullname: cognito.ProviderAttribute.GOOGLE_NAME,
+            },
           })
         : undefined
 

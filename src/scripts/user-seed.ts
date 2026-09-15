@@ -6,8 +6,8 @@ import {
   AdminUpdateUserAttributesCommand,
   type AttributeType,
 } from '@aws-sdk/client-cognito-identity-provider'
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
-import { getResolvedCognitoUserPoolId, getScriptContext, nowIso } from './script-helpers'
+import { seedUserAccountForUser } from './user-accounts-seed'
+import { getResolvedCognitoUserPoolId, getScriptContext } from './script-helpers'
 
 export type SeedUserAccount = {
   username: string
@@ -15,15 +15,6 @@ export type SeedUserAccount = {
   password: string
   group: 'admin' | 'customer'
   name: string
-}
-
-type StoredUserProfile = {
-  userId: string
-  username: string
-  email?: string
-  name?: string
-  createdAt: string
-  updatedAt: string
 }
 
 export const defaultSeedUsers: SeedUserAccount[] = [
@@ -43,8 +34,10 @@ export const defaultSeedUsers: SeedUserAccount[] = [
   },
 ]
 
-export async function ensureSeedUser(account: SeedUserAccount): Promise<{ sub: string; username: string }> {
-  const { cognitoClient, documentClient, runtimeEnv } = getScriptContext()
+export async function ensureSeedUser(
+  account: SeedUserAccount,
+): Promise<{ sub: string; username: string }> {
+  const { cognitoClient } = getScriptContext()
   const userPoolId = getResolvedCognitoUserPoolId()
 
   if (!userPoolId) {
@@ -107,29 +100,13 @@ export async function ensureSeedUser(account: SeedUserAccount): Promise<{ sub: s
     throw new Error(`User ${account.username} is missing Cognito sub.`)
   }
 
-  const existingProfileResponse = await documentClient.send(
-    new GetCommand({
-      TableName: runtimeEnv.USER_PROFILES_TABLE,
-      Key: { userId: sub },
-    }),
-  )
-
-  const existingProfile = existingProfileResponse.Item as StoredUserProfile | undefined
-  const timestamp = nowIso()
-
-  await documentClient.send(
-    new PutCommand({
-      TableName: runtimeEnv.USER_PROFILES_TABLE,
-      Item: {
-        userId: sub,
-        username: account.username,
-        email: account.email,
-        name: account.name,
-        createdAt: existingProfile?.createdAt ?? timestamp,
-        updatedAt: timestamp,
-      } satisfies StoredUserProfile,
-    }),
-  )
+  await seedUserAccountForUser({
+    userId: sub,
+    username: account.username,
+    email: account.email,
+    name: account.name,
+    groups: [account.group],
+  })
 
   return { sub, username: account.username }
 }

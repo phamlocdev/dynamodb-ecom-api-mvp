@@ -13,7 +13,7 @@ export class DynamoDbConstruct extends Construct {
   readonly emailTrackingTable: dynamodb.Table
   readonly eventConsumerIdempotencyTable: dynamodb.Table
   readonly inventoryTable: dynamodb.Table
-  readonly userProfilesTable: dynamodb.Table
+  readonly userAccountsTable: dynamodb.Table
 
   constructor(scope: Construct, id: string) {
     super(scope, id)
@@ -127,8 +127,8 @@ export class DynamoDbConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 
-    this.userProfilesTable = new dynamodb.Table(this, 'UserProfilesTable', {
-      tableName: infraEnv.userProfilesTableName,
+    this.userAccountsTable = new dynamodb.Table(this, 'UserAccountsTable', {
+      tableName: infraEnv.userAccountsTableName,
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,

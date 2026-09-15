@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core'
 import type { APIGatewayProxyEventV2WithJWTAuthorizer } from 'aws-lambda'
 import { AuthenticatedRequest, AuthenticatedUser, JwtAuthorizerClaims } from './auth.types'
+import { normalizePermissions } from './permissions'
 import { IS_PUBLIC_KEY } from './public.decorator'
 import { Role } from './roles.enum'
 
@@ -43,7 +44,15 @@ function readJwtClaims(request: AuthenticatedRequest): JwtAuthorizerClaims | und
   }
 
   const authorizer = (event as APIGatewayProxyEventV2WithJWTAuthorizer).requestContext.authorizer
-  return authorizer?.jwt?.claims
+  const authorizerClaims = authorizer?.jwt?.claims
+  const tokenClaims = readBearerTokenClaims(request)
+
+  return authorizerClaims || tokenClaims
+    ? ({
+        ...(authorizerClaims ?? {}),
+        ...(tokenClaims ?? {}),
+      } as JwtAuthorizerClaims)
+    : undefined
 }
 
 function toAuthenticatedUser(claims: JwtAuthorizerClaims): AuthenticatedUser {
@@ -66,6 +75,7 @@ function toAuthenticatedUser(claims: JwtAuthorizerClaims): AuthenticatedUser {
     email: readString(claims.email),
     name: readString(claims.name),
     groups,
+    permissions: normalizePermissions(claims['app:permissions']),
     tokenUse: 'access',
     scope: scopes,
     clientId,
@@ -117,6 +127,35 @@ function readGroups(value: JwtAuthorizerClaims[keyof JwtAuthorizerClaims]): stri
 
 function readString(value: JwtAuthorizerClaims[keyof JwtAuthorizerClaims]): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function readBearerTokenClaims(request: AuthenticatedRequest): Record<string, unknown> | undefined {
+  const authorizationHeader = request.headers.authorization
+  const token = authorizationHeader?.match(/^Bearer\s+(.+)$/i)?.[1]
+  if (!token) {
+    return undefined
+  }
+
+  return decodeJwtPayload(token)
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) {
+      return undefined
+    }
+
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4 || 4)) % 4),
+      '=',
+    )
+
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
 }
 
 function mapRole(value: string): Role[] {

@@ -24,7 +24,7 @@ export interface LambdaApiConstructProps {
   orderItemsTable: dynamodb.ITable
   emailTrackingTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
-  userProfilesTable: dynamodb.ITable
+  userAccountsTable: dynamodb.ITable
   mediaBucket: s3.IBucket
   placeOrderQueue: sqs.IQueue
   orderEventsBus: events.IEventBus
@@ -60,7 +60,7 @@ export class LambdaApiConstruct extends Construct {
         ORDER_ITEMS_TABLE: props.orderItemsTable.tableName,
         EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
         INVENTORY_TABLE: props.inventoryTable.tableName,
-        USER_PROFILES_TABLE: props.userProfilesTable.tableName,
+        USER_ACCOUNTS_TABLE: props.userAccountsTable.tableName,
         MEDIA_BUCKET_NAME: props.mediaBucket.bucketName,
         PRODUCT_IMAGE_MAX_COUNT: String(infraEnv.productImageMaxCount),
         MEDIA_READ_URL_TTL_SECONDS: String(infraEnv.mediaReadUrlTtlSeconds),
@@ -93,7 +93,7 @@ export class LambdaApiConstruct extends Construct {
     props.orderItemsTable.grantReadWriteData(this.apiHandler)
     props.emailTrackingTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
-    props.userProfilesTable.grantReadWriteData(this.apiHandler)
+    props.userAccountsTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
     props.orderEventsBus.grantPutEventsTo(this.apiHandler)
     this.apiHandler.addToRolePolicy(
@@ -115,6 +115,11 @@ export class LambdaApiConstruct extends Construct {
         actions: [
           'cognito-idp:AdminGetUser',
           'cognito-idp:AdminListGroupsForUser',
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminDisableUser',
+          'cognito-idp:AdminUpdateUserAttributes',
+          'cognito-idp:AdminSetUserPassword',
+          'cognito-idp:AdminAddUserToGroup',
           'cognito-idp:ListUsers',
         ],
         resources: [

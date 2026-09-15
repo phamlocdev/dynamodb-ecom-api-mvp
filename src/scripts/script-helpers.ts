@@ -33,6 +33,8 @@ export type StackOutputs = {
   OrdersTableName?: string
   PlaceOrderQueueUrl?: string
   ProductsTableName?: string
+  UserAccessTableName?: string
+  UserAccountsTableName?: string
 }
 
 export function getScriptContext(): ScriptContext {
@@ -93,6 +95,23 @@ export function getResolvedCognitoUserPoolId(): string {
 export function getResolvedCognitoClientId(): string {
   const { runtimeEnv } = getScriptContext()
   return runtimeEnv.COGNITO_CLIENT_ID ?? getAwsOutputs().CognitoClientId ?? ''
+}
+
+export function getResolvedUserAccountsTableName(): string {
+  const envValue = process.env.USER_ACCOUNTS_TABLE?.trim()
+  if (envValue) {
+    return envValue
+  }
+
+  return getAwsOutputs().UserAccountsTableName ?? getScriptContext().runtimeEnv.USER_ACCOUNTS_TABLE
+}
+
+export function getLegacyUserAccessTableName(): string | undefined {
+  return process.env.USER_ACCESS_TABLE?.trim() || getAwsOutputs().UserAccessTableName
+}
+
+export function getLegacyUserProfilesTableName(): string | undefined {
+  return process.env.USER_PROFILES_TABLE?.trim()
 }
 
 export function getResolvedApiGatewayUrl(): string {

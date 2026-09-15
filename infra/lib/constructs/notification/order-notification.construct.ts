@@ -183,7 +183,7 @@ export class OrderNotificationConstruct extends Construct {
       eventPattern: {
         ...orderCancelledEventPattern,
         detail: {
-          totalAmount: [{ numeric: ['>=', 10000000] }],
+          totalAmount: [{ numeric: ['>=', 10_000_000] }],
         },
       },
       targets: [new eventTargets.SqsQueue(orderCancelledAccountingQueue.queue, sqsTargetOptions)],
@@ -203,7 +203,7 @@ export class OrderNotificationConstruct extends Construct {
     })
 
     const queue = new sqs.Queue(this, `${idPrefix}Queue`, {
-      visibilityTimeout: cdk.Duration.seconds(90),
+      visibilityTimeout: cdk.Duration.seconds(5), // Set visibility timeout to 5 seconds to allow for quick retries
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       deadLetterQueue: {
         queue: dlq,

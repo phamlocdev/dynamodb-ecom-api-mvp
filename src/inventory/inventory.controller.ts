@@ -10,6 +10,8 @@ import {
 } from '@nestjs/swagger'
 import { Role } from '../auth/roles.enum'
 import { Roles } from '../auth/roles.decorator'
+import { Permission } from '../auth/permissions'
+import { RequirePermissions } from '../auth/permissions.decorator'
 import { PaginatedResponse } from '../pagination/pagination.types'
 import { DtoValidationPipe } from '../validation/dto-validation.pipe'
 import { InventoryService } from './inventory.service'
@@ -25,6 +27,7 @@ export class InventoryController {
 
   @Get()
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.INVENTORIES_READ)
   @ApiOperation({
     summary: 'List inventory rows joined with product metadata',
   })
@@ -55,6 +58,7 @@ export class InventoryController {
 
   @Get(':productId')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.INVENTORIES_READ)
   @ApiOperation({ summary: 'Get inventory for one product' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiOkResponse({ type: InventoryResponseDto })
@@ -65,6 +69,7 @@ export class InventoryController {
 
   @Patch(':productId')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.INVENTORIES_UPDATE)
   @ApiOperation({ summary: 'Set the available quantity for one product' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiOkResponse({ type: InventoryResponseDto })

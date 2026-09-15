@@ -24,6 +24,8 @@ import {
 } from '@nestjs/swagger'
 import { Category } from './category.types'
 import { Public } from '../auth/public.decorator'
+import { Permission } from '../auth/permissions'
+import { RequirePermissions } from '../auth/permissions.decorator'
 import { Role } from '../auth/roles.enum'
 import { Roles } from '../auth/roles.decorator'
 import { CategoriesService } from './categories.service'
@@ -41,6 +43,7 @@ export class CategoriesController {
 
   @Post()
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.CATEGORIES_CREATE)
   @ApiOperation({ summary: 'Create a category with a stable categoryId slug' })
   @ApiCreatedResponse({ type: CategoryResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
@@ -53,6 +56,7 @@ export class CategoriesController {
 
   @Get()
   // @Public()
+  @RequirePermissions(Permission.CATEGORIES_READ)
   @ApiOperation({ summary: 'List categories' })
   @ApiOkResponse({ type: PaginatedCategoryResponseDto })
   findAll(
@@ -73,6 +77,7 @@ export class CategoriesController {
 
   @Patch(':categoryId')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.CATEGORIES_UPDATE)
   @ApiOperation({ summary: 'Update category name or description' })
   @ApiParam({ name: 'categoryId', example: 'electronics' })
   @ApiOkResponse({ type: CategoryResponseDto })
@@ -87,6 +92,7 @@ export class CategoriesController {
 
   @Delete(':categoryId')
   @Roles(Role.ADMIN)
+  @RequirePermissions(Permission.CATEGORIES_DELETE)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Delete a category',

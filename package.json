@@ -13,6 +13,8 @@
     "infra:destroy": "node scripts/run-cdk.js destroy --force",
     "seed:catalog": "npx ts-node src/scripts/seed-catalog.ts",
     "seed:users": "npx ts-node src/scripts/seed-users.ts",
+    "seed:user-accounts": "npx ts-node src/scripts/seed-user-accounts.ts",
+    "seed:user-access": "npx ts-node src/scripts/seed-user-access.ts",
     "seed:all": "npm run seed:catalog && npm run seed:users",
     "simulate:oversell": "npx ts-node src/scripts/simulate-oversell.ts",
     "test:notification-retry": "npx ts-node src/scripts/test-notification-retry-flows.ts",
