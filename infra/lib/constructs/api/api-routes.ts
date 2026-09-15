@@ -18,6 +18,7 @@ export function registerApiRoutes(
     path: '/products',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,
+    ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
     path: '/products',
@@ -48,6 +49,7 @@ export function registerApiRoutes(
     path: '/categories',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,
+    ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
     path: '/categories',
@@ -69,6 +71,24 @@ export function registerApiRoutes(
   api.addRoutes({
     path: '/users',
     methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/email-statistics',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/{userId}/email-tracking',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/{userId}/emails/welcome-new-customer/resend-failed',
+    methods: [apigatewayv2.HttpMethod.POST],
     integration,
     ...routeAuthOptions(authorizer),
   })
@@ -111,8 +131,32 @@ export function registerApiRoutes(
     ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
+    path: '/orders/email-statistics',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
     path: '/orders/{orderId}',
     methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/email-tracking',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/status',
+    methods: [apigatewayv2.HttpMethod.PATCH],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/orders/{orderId}/emails/{emailType}/resend-failed',
+    methods: [apigatewayv2.HttpMethod.POST],
     integration,
     ...routeAuthOptions(authorizer),
   })

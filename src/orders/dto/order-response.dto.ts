@@ -16,6 +16,9 @@ export class OrderResponseDto {
   @ApiPropertyOptional()
   customerName?: string
 
+  @ApiPropertyOptional({ type: [String] })
+  additionalReceivingEmails?: string[]
+
   @ApiProperty({ format: 'uuid' })
   cartId!: string
 
@@ -30,6 +33,12 @@ export class OrderResponseDto {
 
   @ApiProperty()
   updatedAt!: string
+
+  @ApiPropertyOptional()
+  shippedAt?: string
+
+  @ApiPropertyOptional()
+  cancelledAt?: string
 
   @ApiPropertyOptional()
   reservedAt?: string

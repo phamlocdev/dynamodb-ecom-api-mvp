@@ -82,10 +82,13 @@ const runtimeEnvSchema = z.object({
   INVENTORY_TABLE: trimmedString.default('inventory'),
   ORDERS_TABLE: trimmedString.default('orders'),
   ORDER_ITEMS_TABLE: trimmedString.default('order-items'),
+  EMAIL_TRACKING_TABLE: trimmedString.default('email-tracking'),
+  EVENT_CONSUMER_IDEMPOTENCY_TABLE: trimmedString.default('event-consumer-idempotency'),
   USER_PROFILES_TABLE: trimmedString.default('user-profiles'),
   PLACE_ORDER_QUEUE_NAME: trimmedString.default('place-order.fifo'),
   PLACE_ORDER_DLQ_NAME: trimmedString.default('place-order-dlq.fifo'),
   PLACE_ORDER_QUEUE_URL: optionalTrimmedString,
+  ORDER_EVENTS_BUS_NAME: trimmedString.default('ecommerce-domain-events'),
   COGNITO_USER_POOL_ID: optionalTrimmedString,
   COGNITO_CLIENT_ID: optionalTrimmedString,
   COGNITO_DEFAULT_GROUP: trimmedString.default('customer'),
@@ -98,7 +101,7 @@ const runtimeEnvSchema = z.object({
   MEDIA_READ_URL_TTL_SECONDS: positiveIntegerFromEnv.default(900),
   UPLOAD_MAX_FILE_SIZE_BYTES: positiveIntegerFromEnv.default(5242880),
   ORDERS_ENTITY_TYPE: trimmedString.default('ORDER'),
-  PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: positiveIntegerFromEnv.default(120),
+  PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: positiveIntegerFromEnv.default(60 * 5),
   RESERVATION_EXPIRY_POLLER_SCHEDULE_MINUTES: positiveIntegerFromEnv.default(1),
   PLACE_ORDER_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
   GOOGLE_CLIENT_ID: optionalTrimmedString,
@@ -118,7 +121,7 @@ const runtimeEnvSchema = z.object({
   SES_ENABLED: booleanFromEnv.default(false),
   SES_FROM_EMAIL: optionalEmailString,
   SES_VERIFIED_RECIPIENTS: csvEmailArrayFromEnv,
-  SES_ORDER_CONFIRMATION_SUBJECT: trimmedString.default('Xac nhan don hang cua ban'),
+  SES_CONFIGURATION_SET_NAME: trimmedString.default('ecommerce-email-events'),
 })
 
 const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
@@ -145,10 +148,13 @@ const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
     cartItemsTableName: environment.CART_ITEMS_TABLE,
     ordersTableName: environment.ORDERS_TABLE,
     orderItemsTableName: environment.ORDER_ITEMS_TABLE,
+    emailTrackingTableName: environment.EMAIL_TRACKING_TABLE,
+    eventConsumerIdempotencyTableName: environment.EVENT_CONSUMER_IDEMPOTENCY_TABLE,
     inventoryTableName: environment.INVENTORY_TABLE,
     userProfilesTableName: environment.USER_PROFILES_TABLE,
     placeOrderQueueName: environment.PLACE_ORDER_QUEUE_NAME,
     placeOrderDlqName: environment.PLACE_ORDER_DLQ_NAME,
+    orderEventsBusName: environment.ORDER_EVENTS_BUS_NAME,
     ordersEntityType: environment.ORDERS_ENTITY_TYPE,
     mediaBucketName: environment.MEDIA_BUCKET_NAME,
     productImageMaxCount: environment.PRODUCT_IMAGE_MAX_COUNT,
@@ -167,7 +173,7 @@ const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
     sesEnabled: environment.SES_ENABLED,
     sesFromEmail: environment.SES_FROM_EMAIL,
     sesVerifiedRecipients: environment.SES_VERIFIED_RECIPIENTS,
-    sesOrderConfirmationSubject: environment.SES_ORDER_CONFIRMATION_SUBJECT,
+    sesConfigurationSetName: environment.SES_CONFIGURATION_SET_NAME,
   }
 })
 

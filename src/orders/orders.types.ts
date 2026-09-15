@@ -1,11 +1,13 @@
 import { OrderStatus } from './order-status.enum'
 import { PaymentStatus } from './payment-status.enum'
+import type { EmailType } from '../mail/mail.types'
 
 export interface Order {
   orderId: string
   customerId: string
   customerEmail?: string
   customerName?: string
+  additionalReceivingEmails?: string[]
   cartId: string
   status: OrderStatus
   entityType: string
@@ -18,14 +20,12 @@ export interface Order {
   paymentFailureReason?: string
   createdAt: string
   updatedAt: string
+  shippedAt?: string
+  cancelledAt?: string
   reservedAt?: string
   paymentExpiresAt?: number
   failureReason?: string
   totalAmount?: number
-  confirmationEmailStatus?: 'PENDING' | 'SENT' | 'SKIPPED' | 'FAILED'
-  confirmationEmailSentAt?: string
-  confirmationEmailMessageId?: string
-  confirmationEmailFailureReason?: string
 }
 
 export interface TriggerPaymentResult {
@@ -61,4 +61,13 @@ export interface PlaceOrderMessage {
   cartId: string
   deduplicationKey: string
   requestedAt: string
+}
+
+export interface ResendOrderEmailResult {
+  orderId: string
+  emailType: EmailType
+  recipientEmails: string[]
+  resentCount: number
+  status: string
+  reason?: string
 }

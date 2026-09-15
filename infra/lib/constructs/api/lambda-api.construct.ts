@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as events from 'aws-cdk-lib/aws-events'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
@@ -21,10 +22,12 @@ export interface LambdaApiConstructProps {
   cartItemsTable: dynamodb.ITable
   ordersTable: dynamodb.ITable
   orderItemsTable: dynamodb.ITable
+  emailTrackingTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   userProfilesTable: dynamodb.ITable
   mediaBucket: s3.IBucket
   placeOrderQueue: sqs.IQueue
+  orderEventsBus: events.IEventBus
   userPoolId: string
   userPoolClientId: string
 }
@@ -55,6 +58,7 @@ export class LambdaApiConstruct extends Construct {
         CART_ITEMS_TABLE: props.cartItemsTable.tableName,
         ORDERS_TABLE: props.ordersTable.tableName,
         ORDER_ITEMS_TABLE: props.orderItemsTable.tableName,
+        EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
         INVENTORY_TABLE: props.inventoryTable.tableName,
         USER_PROFILES_TABLE: props.userProfilesTable.tableName,
         MEDIA_BUCKET_NAME: props.mediaBucket.bucketName,
@@ -64,6 +68,7 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
+        ORDER_EVENTS_BUS_NAME: props.orderEventsBus.eventBusName,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
         VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
         VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
@@ -76,7 +81,7 @@ export class LambdaApiConstruct extends Construct {
         SES_ENABLED: String(infraEnv.sesEnabled),
         SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
         SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
-        SES_ORDER_CONFIRMATION_SUBJECT: infraEnv.sesOrderConfirmationSubject,
+        SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
       },
     })
 
@@ -86,9 +91,11 @@ export class LambdaApiConstruct extends Construct {
     props.cartItemsTable.grantReadWriteData(this.apiHandler)
     props.ordersTable.grantReadWriteData(this.apiHandler)
     props.orderItemsTable.grantReadWriteData(this.apiHandler)
+    props.emailTrackingTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.userProfilesTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
+    props.orderEventsBus.grantPutEventsTo(this.apiHandler)
     this.apiHandler.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['s3:PutObject', 's3:GetObject', 's3:DeleteObject'],

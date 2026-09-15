@@ -2,7 +2,7 @@
   <head>
     <meta charset='UTF-8' />
     <meta name='viewport' content='width=device-width, initial-scale=1.0' />
-    <title>Xác nhận đơn hàng</title>
+    <title>Don hang da bi huy</title>
   </head>
   <body
     style='margin:0;padding:0;background-color:#faf9f2;font-family:Arial,Helvetica,sans-serif;color:#182233;'
@@ -24,15 +24,15 @@
             style='max-width:680px;margin:0 auto;background-color:#ffffff;border:1px solid #d9dde4;border-radius:8px;overflow:hidden;'
           >
             <tr>
-              <td style='padding:36px 32px;background-color:#168078;color:#f4fffd;'>
+              <td style='padding:36px 32px;background-color:#7f1d1d;color:#fff7f7;'>
                 <p
-                  style='margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#d9f7ef;'
-                >Thanh toán thành công</p>
-                <h1 style='margin:0 0 12px;font-size:28px;line-height:1.25;'>Đơn hàng #{{orderId}}
-                  đã được xác nhận</h1>
-                <p style='margin:0;font-size:15px;line-height:1.7;color:#ecfffb;'>Xin chào
-                  {{customerName}}, cảm ơn bạn đã hoàn tất thanh toán. Chúng tôi đã ghi nhận đơn
-                  hàng và sẽ chuẩn bị xử lý.</p>
+                  style='margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fee2e2;'
+                >Don hang da huy</p>
+                <h1 style='margin:0 0 12px;font-size:28px;line-height:1.25;'>Don hang #{{orderId}}
+                  da bi huy</h1>
+                <p style='margin:0;font-size:15px;line-height:1.7;color:#fff1f1;'>Xin chao
+                  {{customerName}}, don hang cua ban da duoc huy vao
+                  {{cancelledAt}}.</p>
               </td>
             </tr>
             <tr>
@@ -42,33 +42,30 @@
                   width='100%'
                   cellspacing='0'
                   cellpadding='0'
-                  style='margin-bottom:24px;background-color:#f2f8f5;border:1px solid #d9eee6;border-radius:8px;'
+                  style='margin-bottom:24px;background-color:#fff7ed;border:1px solid #fed7aa;border-radius:8px;'
                 >
                   <tr>
                     <td style='padding:20px;'>
-                      <p style='margin:0 0 14px;font-size:17px;font-weight:700;color:#182233;'>Thông
-                        tin thanh toán</p>
+                      <p style='margin:0 0 14px;font-size:17px;font-weight:700;color:#182233;'>Tom
+                        tat don hang</p>
                       <p
                         style='margin:0 0 8px;font-size:14px;line-height:1.6;color:#4c5968;'
-                      ><strong style='color:#182233;'>Mã đơn hàng:</strong> #{{orderId}}</p>
-                      <p
-                        style='margin:0 0 8px;font-size:14px;line-height:1.6;color:#4c5968;'
-                      ><strong style='color:#182233;'>Thời gian thanh toán:</strong> {{paidAt}}</p>
+                      ><strong style='color:#182233;'>Ma don hang:</strong> #{{orderId}}</p>
                       <p
                         style='margin:0 0 12px;font-size:14px;line-height:1.6;color:#4c5968;'
-                      ><strong style='color:#182233;'>Mã giao dịch:</strong>
-                        {{paymentTransactionId}}</p>
-                      <p style='margin:0;font-size:15px;line-height:1.6;color:#182233;'><strong>Tổng
-                          thanh toán:</strong>
+                      ><strong style='color:#182233;'>Thoi gian huy:</strong>
+                        {{cancelledAt}}</p>
+                      <p style='margin:0;font-size:15px;line-height:1.6;color:#182233;'><strong>Tong
+                          thanh toan:</strong>
                         <span
-                          style='font-size:22px;font-weight:700;color:#168078;'
+                          style='font-size:22px;font-weight:700;color:#7f1d1d;'
                         >{{totalAmount}}</span></p>
                     </td>
                   </tr>
                 </table>
 
-                <h2 style='margin:0 0 14px;font-size:19px;line-height:1.3;color:#182233;'>Chi tiết
-                  đơn hàng</h2>
+                <h2 style='margin:0 0 14px;font-size:19px;line-height:1.3;color:#182233;'>San pham
+                  trong don</h2>
                 <table
                   role='presentation'
                   width='100%'
@@ -80,19 +77,19 @@
                     <th
                       align='left'
                       style='padding:12px 14px;font-size:12px;line-height:1.4;text-transform:uppercase;'
-                    >Sản phẩm</th>
+                    >San pham</th>
                     <th
                       align='right'
                       style='padding:12px 14px;font-size:12px;line-height:1.4;text-transform:uppercase;'
-                    >Số lượng</th>
+                    >So luong</th>
                     <th
                       align='right'
                       style='padding:12px 14px;font-size:12px;line-height:1.4;text-transform:uppercase;'
-                    >Đơn giá</th>
+                    >Don gia</th>
                     <th
                       align='right'
                       style='padding:12px 14px;font-size:12px;line-height:1.4;text-transform:uppercase;'
-                    >Thành tiền</th>
+                    >Thanh tien</th>
                   </tr>
                   {{#each items}}
                     <tr>
@@ -124,11 +121,8 @@
                 >
                   <tr>
                     <td style='padding:18px 20px;'>
-                      <p
-                        style='margin:0 0 6px;font-size:15px;line-height:1.6;font-weight:700;color:#182233;'
-                      >Lưu ý</p>
-                      <p style='margin:0;font-size:13px;line-height:1.7;color:#4c5968;'>Đây là email
-                        tự động từ hệ thống. Vui lòng không trả lời trực tiếp email này.</p>
+                      <p style='margin:0;font-size:13px;line-height:1.7;color:#4c5968;'>Day la email
+                        tu dong tu he thong. Vui long khong tra loi truc tiep email nay.</p>
                     </td>
                   </tr>
                 </table>

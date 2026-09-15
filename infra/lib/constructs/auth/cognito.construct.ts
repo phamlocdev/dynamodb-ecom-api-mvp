@@ -1,10 +1,17 @@
 import * as cdk from 'aws-cdk-lib'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
-import { createNodejsBundling, sourceEntryPath } from '../../shared/lambda-bundling'
+import {
+  copyDirectoryIntoBundle,
+  createNodejsBundling,
+  removeGeneratedSourceArtifacts,
+  sourceEntryPath,
+} from '../../shared/lambda-bundling'
 import { InfraRole } from '../../shared/roles'
 import { createUserPoolGroups } from './cognito-groups'
 
@@ -14,12 +21,14 @@ export interface CognitoConstructProps {
   hostedUiDomainPrefix: string
   googleClientId?: string
   googleClientSecret?: string
+  emailTrackingTable: dynamodb.ITable
 }
 
 export class CognitoConstruct extends Construct {
   readonly userPool: cognito.UserPool
   readonly userPoolClient: cognito.UserPoolClient
   readonly userPoolDomain: cognito.UserPoolDomain
+  readonly postConfirmationHandler: nodejs.NodejsFunction
 
   constructor(scope: Construct, id: string, props: CognitoConstructProps) {
     super(scope, id)
@@ -40,19 +49,46 @@ export class CognitoConstruct extends Construct {
       },
     })
 
-    const postConfirmationHandler = new nodejs.NodejsFunction(this, 'PostConfirmationHandler', {
+    this.postConfirmationHandler = new nodejs.NodejsFunction(this, 'PostConfirmationHandler', {
       runtime: lambda.Runtime.NODEJS_24_X,
       entry: sourceEntryPath('cognito', 'post-confirmation.ts'),
       handler: 'handler',
       timeout: cdk.Duration.seconds(15),
       memorySize: 256,
-      bundling: createNodejsBundling(),
+      bundling: createNodejsBundling({
+        afterBundling: (inputDir, outputDir) => [
+          ...removeGeneratedSourceArtifacts(),
+          ...copyDirectoryIntoBundle(inputDir, outputDir, 'src/mail/templates', 'templates'),
+        ],
+      }),
       environment: {
         COGNITO_DEFAULT_GROUP: InfraRole.customer,
+        EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
+        SES_ENABLED: String(infraEnv.sesEnabled),
+        SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
+        SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
+        SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
       },
     })
 
-    this.userPool.addTrigger(cognito.UserPoolOperation.POST_CONFIRMATION, postConfirmationHandler)
+    props.emailTrackingTable.grantReadWriteData(this.postConfirmationHandler)
+    this.postConfirmationHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cognito-idp:AdminAddUserToGroup'],
+        resources: [
+          cdk.Stack.of(this).formatArn({
+            service: 'cognito-idp',
+            resource: 'userpool',
+            resourceName: '*',
+          }),
+        ],
+      }),
+    )
+
+    this.userPool.addTrigger(
+      cognito.UserPoolOperation.POST_CONFIRMATION,
+      this.postConfirmationHandler,
+    )
 
     const supportedIdentityProviders = [cognito.UserPoolClientIdentityProvider.COGNITO]
     const googleProvider =
@@ -75,9 +111,9 @@ export class CognitoConstruct extends Construct {
         userSrp: true,
       },
       preventUserExistenceErrors: true,
-      accessTokenValidity: cdk.Duration.minutes(60),
-      idTokenValidity: cdk.Duration.minutes(60),
-      refreshTokenValidity: cdk.Duration.days(30),
+      accessTokenValidity: cdk.Duration.minutes(5),
+      idTokenValidity: cdk.Duration.minutes(5),
+      refreshTokenValidity: cdk.Duration.hours(1),
       refreshTokenRotationGracePeriod: cdk.Duration.seconds(30),
       enableTokenRevocation: true,
       supportedIdentityProviders,

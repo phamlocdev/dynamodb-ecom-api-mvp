@@ -51,7 +51,7 @@ export class ProductsController {
   }
 
   @Get()
-  @Public()
+  // @Public()
   @ApiOperation({
     summary: 'List products',
     description:

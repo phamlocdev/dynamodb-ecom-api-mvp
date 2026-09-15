@@ -23,7 +23,9 @@ import { CartStatus } from '../carts/cart-status.enum'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { InventoryService } from '../inventory/inventory.service'
 import { ReservedInventoryItem } from '../inventory/inventory.types'
+import { EmailTrackingService } from '../mail/email-tracking.service'
 import { SesMailService } from '../mail/ses-mail.service'
+import { EmailDeliveryStatistics, EmailTrackingView, EmailType } from '../mail/mail.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { PaginatedResponse } from '../pagination/pagination.types'
 import { Product } from '../products/product.types'
@@ -32,6 +34,7 @@ import { UsersService } from '../users/users.service'
 import { OrdersQueueService } from './orders.queue'
 import { CreateOrderDto } from './dto/create-order.dto'
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto'
+import { OrderEventsPublisher } from './order-events.publisher'
 import { OrderStatus } from './order-status.enum'
 import { PAYMENT_WINDOW_EXPIRED_REASON } from './payment-reservation.config'
 import { PaymentStatus } from './payment-status.enum'
@@ -39,6 +42,7 @@ import {
   Order,
   OrderDetails,
   OrderItem,
+  ResendOrderEmailResult,
   TriggerPaymentResult,
   VnpayReturnResult,
 } from './orders.types'
@@ -59,10 +63,13 @@ const VNPAY_PAYMENT_EXPIRY_SKEW_SECONDS = 5
 const AUTO_REFUND_CREATE_BY = 'system-auto-refund'
 const AUTO_REFUND_REASON =
   'Payment arrived after reservation expiry. Amount refunded automatically.'
-const ORDER_CONFIRMATION_EMAIL_PENDING = 'PENDING'
 const ORDER_CONFIRMATION_EMAIL_SENT = 'SENT'
 const ORDER_CONFIRMATION_EMAIL_SKIPPED = 'SKIPPED'
-const ORDER_CONFIRMATION_EMAIL_FAILED = 'FAILED'
+const ORDER_EMAIL_TYPES: EmailType[] = [
+  'ORDER_CONFIRMATION',
+  'SHIPPED_ORDER_NOTIFICATION',
+  'CANCELLED_ORDER_NOTIFICATION',
+]
 
 @Injectable()
 export class OrdersService {
@@ -83,10 +90,14 @@ export class OrdersService {
     private readonly productsService: ProductsService,
     @Inject(UsersService)
     private readonly usersService: UsersService,
+    @Inject(EmailTrackingService)
+    private readonly emailTrackingService: EmailTrackingService,
     @Inject(SesMailService)
     private readonly sesMailService: SesMailService,
     @Inject(OrdersQueueService)
     private readonly ordersQueueService: OrdersQueueService,
+    @Inject(OrderEventsPublisher)
+    private readonly orderEventsPublisher: OrderEventsPublisher,
     @Inject(VnpayService)
     private readonly vnpayService: VnpayService,
     @Inject(ConfigService)
@@ -117,6 +128,7 @@ export class OrdersService {
       customerId: user.sub,
       customerEmail: user.email ?? profile.email,
       customerName: user.name ?? profile.name,
+      additionalReceivingEmails: normalizeAdditionalReceivingEmails(dto.additionalReceivingEmails),
       cartId: dto.cartId,
       status: OrderStatus.PENDING,
       entityType: ORDERS_ENTITY_TYPE,
@@ -289,6 +301,254 @@ export class OrdersService {
     }
 
     return response.Item as Order
+  }
+
+  async getEmailStatistics(): Promise<EmailDeliveryStatistics> {
+    return this.emailTrackingService.getStatistics(ORDER_EMAIL_TYPES)
+  }
+
+  async getEmailTracking(orderId: string): Promise<EmailTrackingView[]> {
+    await this.getById(orderId)
+    return this.emailTrackingService.findByContext('ORDER', orderId, ORDER_EMAIL_TYPES)
+  }
+
+  async resendFailedOrderEmail(
+    orderId: string,
+    emailType: EmailType,
+    recipientEmail: string,
+  ): Promise<ResendOrderEmailResult> {
+    if (
+      emailType !== 'ORDER_CONFIRMATION' &&
+      emailType !== 'SHIPPED_ORDER_NOTIFICATION' &&
+      emailType !== 'CANCELLED_ORDER_NOTIFICATION'
+    ) {
+      throw new BadRequestException(`Email type ${emailType} is not supported for order resend.`)
+    }
+
+    const order = await this.getById(orderId)
+    const normalizedRecipientEmail = normalizeEmail(recipientEmail)
+    if (!normalizedRecipientEmail) {
+      throw new BadRequestException('recipientEmail is required.')
+    }
+
+    const retryableItem = await this.emailTrackingService.findLatestRetryableForRecipient({
+      contextType: 'ORDER',
+      contextId: orderId,
+      emailType,
+      recipientEmail: normalizedRecipientEmail,
+    })
+
+    if (!retryableItem) {
+      return {
+        orderId,
+        emailType,
+        recipientEmails: [],
+        resentCount: 0,
+        status: 'SKIPPED',
+        reason: 'no-retryable-recipients',
+      }
+    }
+
+    const items = await this.findOrderItems(orderId)
+    const recipientEmails = [normalizedRecipientEmail]
+    const result = await this.resendOrderEmailByType({
+      order,
+      items,
+      emailType,
+      recipientEmails,
+      resendOfEmailId: retryableItem.emailId,
+    })
+
+    return {
+      orderId,
+      emailType,
+      recipientEmails,
+      resentCount: recipientEmails.length,
+      status: result.status,
+      reason: result.reason,
+    }
+  }
+
+  private async resendOrderEmailByType(input: {
+    order: Order
+    items: OrderItem[]
+    emailType: EmailType
+    recipientEmails: string[]
+    resendOfEmailId: string
+  }) {
+    if (input.emailType === 'ORDER_CONFIRMATION') {
+      return this.sesMailService.sendOrderConfirmationEmail({
+        order: input.order,
+        items: input.items,
+        recipientEmails: input.recipientEmails,
+        resendOfEmailId: input.resendOfEmailId,
+      })
+    }
+
+    if (input.emailType === 'SHIPPED_ORDER_NOTIFICATION') {
+      return this.sesMailService.sendShippedOrderNotificationEmail({
+        order: input.order,
+        items: input.items,
+        shippedAt: input.order.shippedAt ?? input.order.updatedAt,
+        recipientEmails: input.recipientEmails,
+        resendOfEmailId: input.resendOfEmailId,
+      })
+    }
+
+    return this.sesMailService.sendCancelledOrderNotificationEmail({
+      order: input.order,
+      items: input.items,
+      cancelledAt: input.order.cancelledAt ?? input.order.updatedAt,
+      recipientEmails: input.recipientEmails,
+      resendOfEmailId: input.resendOfEmailId,
+    })
+  }
+
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<Order> {
+    if (status === OrderStatus.SHIPPED) {
+      return this.markOrderShipped(orderId)
+    }
+
+    if (status === OrderStatus.CANCELLED) {
+      return this.cancelConfirmedPaidOrder(orderId)
+    }
+
+    throw new BadRequestException(
+      `Only ${OrderStatus.SHIPPED} and ${OrderStatus.CANCELLED} status updates are supported.`,
+    )
+  }
+
+  private async markOrderShipped(orderId: string): Promise<Order> {
+    const order = await this.getById(orderId)
+    if (order.status === OrderStatus.SHIPPED) {
+      return order
+    }
+
+    if (order.status !== OrderStatus.CONFIRMED || order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Only paid confirmed orders can be marked as shipped.')
+    }
+
+    const shippedAt = new Date().toISOString()
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.ordersTableName,
+          Key: { orderId },
+          UpdateExpression:
+            'SET #status = :shipped, #shippedAt = :shippedAt, #updatedAt = :updatedAt',
+          ConditionExpression: '#status = :confirmed AND #paymentStatus = :paid',
+          ExpressionAttributeNames: {
+            '#status': 'status',
+            '#paymentStatus': 'paymentStatus',
+            '#shippedAt': 'shippedAt',
+            '#updatedAt': 'updatedAt',
+          },
+          ExpressionAttributeValues: {
+            ':confirmed': OrderStatus.CONFIRMED,
+            ':paid': PaymentStatus.PAID,
+            ':shipped': OrderStatus.SHIPPED,
+            ':shippedAt': shippedAt,
+            ':updatedAt': shippedAt,
+          },
+        }),
+      )
+    } catch (error) {
+      if (isConditionalCheckFailure(error)) {
+        throw new ConflictException(`Order ${orderId} cannot be marked as shipped.`)
+      }
+      throw error
+    }
+
+    const updatedOrder = await this.getById(orderId)
+    try {
+      await this.orderEventsPublisher.publishOrderShipped({
+        orderId: updatedOrder.orderId,
+        shippedAt,
+      })
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish shipped event for order ${updatedOrder.orderId} shippedAt=${shippedAt}.`,
+        error,
+      )
+      throw error
+    }
+    return updatedOrder
+  }
+
+  private async cancelConfirmedPaidOrder(orderId: string): Promise<Order> {
+    const order = await this.getById(orderId)
+    if (order.status === OrderStatus.CANCELLED) {
+      return order
+    }
+
+    if (order.status !== OrderStatus.CONFIRMED || order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Only paid confirmed orders can be cancelled.')
+    }
+
+    const items = await this.findOrderItems(order.orderId)
+    const inventoryItems = aggregateReservedItems(
+      items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+    )
+    assertTransactionSize(inventoryItems)
+
+    const cancelledAt = new Date().toISOString()
+    try {
+      await this.dynamoDbService.documentClient.send(
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Update: {
+                TableName: this.ordersTableName,
+                Key: { orderId },
+                UpdateExpression:
+                  'SET #status = :cancelled, #cancelledAt = :cancelledAt, #updatedAt = :updatedAt',
+                ConditionExpression: '#status = :confirmed AND #paymentStatus = :paid',
+                ExpressionAttributeNames: {
+                  '#status': 'status',
+                  '#paymentStatus': 'paymentStatus',
+                  '#cancelledAt': 'cancelledAt',
+                  '#updatedAt': 'updatedAt',
+                },
+                ExpressionAttributeValues: {
+                  ':confirmed': OrderStatus.CONFIRMED,
+                  ':paid': PaymentStatus.PAID,
+                  ':cancelled': OrderStatus.CANCELLED,
+                  ':cancelledAt': cancelledAt,
+                  ':updatedAt': cancelledAt,
+                },
+              },
+            },
+            ...buildReleaseInventoryTransactItems(
+              this.inventoryTableName,
+              inventoryItems,
+              cancelledAt,
+            ),
+          ],
+        }),
+      )
+    } catch (error) {
+      if (isConditionalCheckFailure(error) || isTransactionCanceled(error)) {
+        throw new ConflictException(`Order ${orderId} cannot be cancelled.`)
+      }
+      throw error
+    }
+
+    const updatedOrder = await this.getById(orderId)
+    try {
+      await this.orderEventsPublisher.publishOrderCancelled({
+        orderId: updatedOrder.orderId,
+        cancelledAt,
+        totalAmount: updatedOrder.totalAmount ?? 0,
+      })
+    } catch (error) {
+      this.logger.error(
+        `Failed to publish cancelled event for order ${updatedOrder.orderId} cancelledAt=${cancelledAt}.`,
+        error,
+      )
+      throw error
+    }
+
+    return updatedOrder
   }
 
   async triggerPayment(
@@ -877,15 +1137,16 @@ export class OrdersService {
       return
     }
 
-    const claimed = await this.claimOrderConfirmationEmailAttempt(order.orderId)
-    if (!claimed) {
+    const hasActiveTracking = await this.emailTrackingService.hasActiveOrderConfirmationTracking(
+      order.orderId,
+    )
+    if (hasActiveTracking) {
       return
     }
 
     try {
       const items = await this.findOrderItems(order.orderId)
       const result = await this.sesMailService.sendOrderConfirmationEmail({ order, items })
-      await this.persistOrderConfirmationEmailResult(order.orderId, result)
 
       if (result.status === ORDER_CONFIRMATION_EMAIL_SKIPPED) {
         this.logger.warn(
@@ -897,14 +1158,6 @@ export class OrdersService {
         this.logger.log(`Order confirmation email sent for order ${order.orderId}.`)
       }
     } catch (error) {
-      const failureReason =
-        error instanceof Error ? error.message : 'order-confirmation-email-failed'
-
-      await this.persistOrderConfirmationEmailResult(order.orderId, {
-        status: ORDER_CONFIRMATION_EMAIL_FAILED,
-        reason: failureReason,
-      })
-
       this.logger.error(
         `Unexpected failure while processing order confirmation email for ${order.orderId}.`,
         error,
@@ -912,98 +1165,46 @@ export class OrdersService {
     }
   }
 
-  private async claimOrderConfirmationEmailAttempt(orderId: string): Promise<boolean> {
-    try {
-      await this.dynamoDbService.documentClient.send(
-        new UpdateCommand({
-          TableName: this.ordersTableName,
-          Key: { orderId },
-          UpdateExpression:
-            'SET #confirmationEmailStatus = :pending, #updatedAt = :updatedAt REMOVE #confirmationEmailFailureReason, #confirmationEmailMessageId, #confirmationEmailSentAt',
-          ConditionExpression:
-            'attribute_not_exists(#confirmationEmailStatus) OR #confirmationEmailStatus = :failed',
-          ExpressionAttributeNames: {
-            '#confirmationEmailStatus': 'confirmationEmailStatus',
-            '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
-            '#confirmationEmailMessageId': 'confirmationEmailMessageId',
-            '#confirmationEmailSentAt': 'confirmationEmailSentAt',
-            '#updatedAt': 'updatedAt',
-          },
-          ExpressionAttributeValues: {
-            ':pending': ORDER_CONFIRMATION_EMAIL_PENDING,
-            ':failed': ORDER_CONFIRMATION_EMAIL_FAILED,
-            ':updatedAt': new Date().toISOString(),
-          },
-        }),
-      )
-
-      return true
-    } catch (error) {
-      if (isConditionalCheckFailure(error)) {
-        return false
-      }
-
-      throw error
-    }
-  }
-
-  private async persistOrderConfirmationEmailResult(
-    orderId: string,
-    result: {
-      status: 'SENT' | 'SKIPPED' | 'FAILED'
-      messageId?: string
-      reason?: string
-    },
+  private async sendShippedOrderNotificationBestEffort(
+    order: Order,
+    shippedAt: string,
   ): Promise<void> {
-    const timestamp = new Date().toISOString()
-
-    if (result.status === ORDER_CONFIRMATION_EMAIL_SENT) {
-      await this.dynamoDbService.documentClient.send(
-        new UpdateCommand({
-          TableName: this.ordersTableName,
-          Key: { orderId },
-          UpdateExpression:
-            'SET #confirmationEmailStatus = :status, #confirmationEmailSentAt = :sentAt, #updatedAt = :updatedAt' +
-            (result.messageId ? ', #confirmationEmailMessageId = :messageId' : '') +
-            ' REMOVE #confirmationEmailFailureReason',
-          ExpressionAttributeNames: {
-            '#confirmationEmailStatus': 'confirmationEmailStatus',
-            '#confirmationEmailSentAt': 'confirmationEmailSentAt',
-            '#confirmationEmailMessageId': 'confirmationEmailMessageId',
-            '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
-            '#updatedAt': 'updatedAt',
-          },
-          ExpressionAttributeValues: {
-            ':status': ORDER_CONFIRMATION_EMAIL_SENT,
-            ':sentAt': timestamp,
-            ':updatedAt': timestamp,
-            ...(result.messageId ? { ':messageId': result.messageId } : {}),
-          },
-        }),
-      )
+    if (order.status !== OrderStatus.SHIPPED || order.paymentStatus !== PaymentStatus.PAID) {
       return
     }
 
-    await this.dynamoDbService.documentClient.send(
-      new UpdateCommand({
-        TableName: this.ordersTableName,
-        Key: { orderId },
-        UpdateExpression:
-          'SET #confirmationEmailStatus = :status, #confirmationEmailFailureReason = :reason, #updatedAt = :updatedAt REMOVE #confirmationEmailMessageId, #confirmationEmailSentAt',
-        ExpressionAttributeNames: {
-          '#confirmationEmailStatus': 'confirmationEmailStatus',
-          '#confirmationEmailFailureReason': 'confirmationEmailFailureReason',
-          '#confirmationEmailMessageId': 'confirmationEmailMessageId',
-          '#confirmationEmailSentAt': 'confirmationEmailSentAt',
-          '#updatedAt': 'updatedAt',
-        },
-        ExpressionAttributeValues: {
-          ':status': result.status,
-          ':reason': result.reason ?? 'unknown-email-delivery-result',
-          ':updatedAt': timestamp,
-        },
-      }),
-    )
+    const hasActiveTracking = await this.emailTrackingService.hasActiveTracking({
+      contextType: 'ORDER',
+      contextId: order.orderId,
+      emailType: 'SHIPPED_ORDER_NOTIFICATION',
+    })
+    if (hasActiveTracking) {
+      return
+    }
+
+    try {
+      const items = await this.findOrderItems(order.orderId)
+      const result = await this.sesMailService.sendShippedOrderNotificationEmail({
+        order,
+        items,
+        shippedAt,
+      })
+
+      if (result.status === 'SKIPPED') {
+        this.logger.warn(
+          `Skipped shipped notification email for order ${order.orderId}: ${result.reason ?? 'unknown-reason'}.`,
+        )
+      }
+
+      if (result.status === 'SENT') {
+        this.logger.log(`Shipped notification email sent for order ${order.orderId}.`)
+      }
+    } catch (error) {
+      this.logger.error(
+        `Unexpected failure while processing shipped notification email for ${order.orderId}.`,
+        error,
+      )
+    }
   }
 
   private async handleFailedIpn(order: Order, failureReason: string): Promise<IpnResponse> {
@@ -1101,6 +1302,23 @@ export class OrdersService {
 
 function toEpochSeconds(timestampMs: number): number {
   return Math.floor(timestampMs / 1000)
+}
+
+function normalizeAdditionalReceivingEmails(emails: string[] | undefined): string[] | undefined {
+  if (!emails) {
+    return undefined
+  }
+
+  const normalizedEmails = Array.from(
+    new Set(emails.map((email) => email.trim().toLowerCase()).filter((email) => email.length > 0)),
+  )
+
+  return normalizedEmails.length > 0 ? normalizedEmails : undefined
+}
+
+function normalizeEmail(email: string | undefined): string | undefined {
+  const normalizedEmail = email?.trim().toLowerCase()
+  return normalizedEmail || undefined
 }
 
 function buildPaymentOrderInfo(orderId: string): string {
