@@ -116,7 +116,9 @@ async function main(): Promise<void> {
   )
 
   const finalOrders = await Promise.all(
-    placedOrders.map(({ session, order }) => waitForOrderResolution(apiBaseUrl, session.accessToken, order.orderId)),
+    placedOrders.map(({ session, order }) =>
+      waitForOrderResolution(apiBaseUrl, session.accessToken, order.orderId),
+    ),
   )
 
   const inventoryResponse = await documentClient.send(
@@ -232,7 +234,9 @@ async function apiRequest<TResponse>(
 
   if (!response.ok) {
     const body = await response.text()
-    throw new Error(`Request ${init.method ?? 'GET'} ${resourcePath} failed with ${response.status}: ${body}`)
+    throw new Error(
+      `Request ${init.method ?? 'GET'} ${resourcePath} failed with ${response.status}: ${body}`,
+    )
   }
 
   if (response.status === 204) {

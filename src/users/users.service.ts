@@ -1,27 +1,49 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
+  AdminAddUserToGroupCommand,
+  AdminCreateUserCommand,
+  AdminDisableUserCommand,
+  AdminEnableUserCommand,
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
+  AdminSetUserPasswordCommand,
+  AdminUpdateUserAttributesCommand,
   CognitoIdentityProviderClient,
   ListUsersCommand,
   type AttributeType,
   type UserType,
 } from '@aws-sdk/client-cognito-identity-provider'
 import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
+import { normalizePermissions, Permission } from '../auth/permissions'
 import { AuthenticatedUser } from '../auth/auth.types'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
 import { EmailTrackingService } from '../mail/email-tracking.service'
 import { EmailDeliveryStatistics, EmailTrackingView } from '../mail/mail.types'
 import { SesMailService } from '../mail/ses-mail.service'
 import { UploadService } from '../upload/upload.service'
+import { CreateManagedUserDto } from './dto/create-managed-user.dto'
+import { UpdateManagedUserDto } from './dto/update-managed-user.dto'
 import { UpdateUserProfileDto } from './dto/update-user-profile.dto'
-import { CustomerProfile, ManagedUser, ResendUserEmailResult, UserProfile } from './user.types'
+import {
+  CustomerProfile,
+  ManagedUser,
+  ResendUserEmailResult,
+  UserAccount,
+  UserPermissionsRecord,
+  UserProfile,
+} from './user.types'
 
 @Injectable()
 export class UsersService {
   private readonly userPoolId: string
-  private readonly profileTableName: string
+  private readonly userAccountsTableName: string
   private readonly cognitoClient: CognitoIdentityProviderClient
 
   constructor(
@@ -36,7 +58,7 @@ export class UsersService {
     private readonly uploadService: UploadService,
   ) {
     this.userPoolId = configService.get<string>('COGNITO_USER_POOL_ID') ?? ''
-    this.profileTableName = configService.get<string>('USER_PROFILES_TABLE') ?? 'user-profiles'
+    this.userAccountsTableName = configService.get<string>('USER_ACCOUNTS_TABLE') ?? 'user-accounts'
 
     const region =
       configService.get<string>('AWS_REGION') ??
@@ -65,6 +87,171 @@ export class UsersService {
     } while (paginationToken)
 
     return Promise.all(users.map((user) => this.toManagedUser(user)))
+  }
+
+  async createManagedUser(
+    actor: AuthenticatedUser,
+    dto: CreateManagedUserDto,
+  ): Promise<ManagedUser> {
+    const attributes: AttributeType[] = [
+      { Name: 'email', Value: dto.email },
+      { Name: 'email_verified', Value: 'true' },
+    ]
+    if (dto.name) {
+      attributes.push({ Name: 'name', Value: dto.name })
+    }
+
+    try {
+      await this.cognitoClient.send(
+        new AdminCreateUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: dto.username,
+          MessageAction: 'SUPPRESS',
+          UserAttributes: attributes,
+        }),
+      )
+    } catch (error) {
+      if (isCognitoError(error, 'UsernameExistsException')) {
+        throw new ConflictException(`User ${dto.username} already exists.`)
+      }
+      throw error
+    }
+
+    await this.cognitoClient.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: this.userPoolId,
+        Username: dto.username,
+        Password: dto.password,
+        // Permanent: true,
+        Permanent: false, // Set to false to allow the user to change their password on first login
+      }),
+    )
+
+    await this.cognitoClient.send(
+      new AdminAddUserToGroupCommand({
+        UserPoolId: this.userPoolId,
+        Username: dto.username,
+        GroupName: dto.group,
+      }),
+    )
+
+    const user = await this.findManagedUserByUsername(dto.username)
+    if (user.sub) {
+      await this.putUserAccount({
+        userId: user.sub,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        permissions: normalizePermissions(dto.permissions),
+      })
+    }
+
+    return this.findManagedUserByUsername(dto.username)
+  }
+
+  async updateManagedUser(userId: string, dto: UpdateManagedUserDto): Promise<ManagedUser> {
+    const user = await this.findManagedUserBySub(userId)
+
+    const userAttributes: AttributeType[] = []
+    if (dto.email !== undefined) {
+      userAttributes.push({ Name: 'email', Value: dto.email })
+      userAttributes.push({ Name: 'email_verified', Value: 'true' })
+    }
+    if (dto.name !== undefined) {
+      userAttributes.push({ Name: 'name', Value: dto.name })
+    }
+
+    if (userAttributes.length > 0) {
+      await this.cognitoClient.send(
+        new AdminUpdateUserAttributesCommand({
+          UserPoolId: this.userPoolId,
+          Username: user.username,
+          UserAttributes: userAttributes,
+        }),
+      )
+
+      await this.putUserAccount({
+        userId,
+        username: user.username,
+        email: dto.email ?? user.email,
+        name: dto.name ?? user.name,
+        permissions: user.permissions,
+      })
+    }
+
+    if (dto.enabled === true && !user.enabled) {
+      await this.cognitoClient.send(
+        new AdminEnableUserCommand({
+          UserPoolId: this.userPoolId,
+          Username: user.username,
+        }),
+      )
+    } else if (dto.enabled === false && user.enabled) {
+      await this.disableManagedUser(userId)
+    }
+
+    return this.findManagedUserBySub(userId)
+  }
+
+  async disableManagedUser(userId: string): Promise<void> {
+    const user = await this.findManagedUserBySub(userId)
+    await this.cognitoClient.send(
+      new AdminDisableUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: user.username,
+      }),
+    )
+  }
+
+  async updateUserPermissions(
+    userId: string,
+    permissions: Permission[],
+    actor: AuthenticatedUser,
+  ): Promise<UserPermissionsRecord> {
+    void actor
+    await this.findManagedUserBySub(userId)
+    const record = await this.putUserAccount({
+      userId,
+      permissions: normalizePermissions(permissions),
+    })
+
+    return toUserPermissionsRecord(record)
+  }
+
+  async resetManagedUserPassword(userId: string, password: string): Promise<void> {
+    const user = await this.findManagedUserBySub(userId)
+
+    await this.cognitoClient.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: this.userPoolId,
+        Username: user.username,
+        Password: password,
+        Permanent: false,
+      }),
+    )
+  }
+
+  async setOwnPassword(user: AuthenticatedUser, password: string): Promise<void> {
+    const response = await this.cognitoClient.send(
+      new AdminGetUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: user.username,
+      }),
+    )
+    const attributes = toAttributeMap(response.UserAttributes ?? [])
+
+    if (attributes.email_verified !== 'true') {
+      throw new BadRequestException('Your email must be verified before setting a password.')
+    }
+
+    await this.cognitoClient.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: this.userPoolId,
+        Username: user.username,
+        Password: password,
+        Permanent: true,
+      }),
+    )
   }
 
   async getWelcomeEmailStatistics(): Promise<EmailDeliveryStatistics> {
@@ -144,11 +331,13 @@ export class UsersService {
       groups: (groupsResponse.Groups ?? []).flatMap((group) =>
         group.GroupName ? [group.GroupName] : [],
       ),
+      permissions: [],
       createdAt: user.UserCreateDate?.toISOString(),
       updatedAt: user.UserLastModifiedDate?.toISOString(),
     }
 
     if (managedUser.sub) {
+      managedUser.permissions = await this.findUserPermissions(managedUser.sub)
       managedUser.welcomeEmailTracking = await this.emailTrackingService.getLatestSummary(
         'USER',
         managedUser.sub,
@@ -159,6 +348,25 @@ export class UsersService {
     return managedUser
   }
 
+  private async findManagedUserByUsername(username: string): Promise<ManagedUser> {
+    const response = await this.cognitoClient.send(
+      new AdminGetUserCommand({
+        UserPoolId: this.userPoolId,
+        Username: username,
+      }),
+    )
+
+    const user: UserType = {
+      Username: response.Username,
+      Enabled: response.Enabled,
+      UserStatus: response.UserStatus,
+      UserCreateDate: response.UserCreateDate,
+      UserLastModifiedDate: response.UserLastModifiedDate,
+      Attributes: response.UserAttributes,
+    }
+    return this.toManagedUser(user)
+  }
+
   private async findManagedUserBySub(userId: string): Promise<ManagedUser> {
     const users = await this.findAll()
     const user = users.find((item) => item.sub === userId)
@@ -166,6 +374,67 @@ export class UsersService {
       throw new NotFoundException(`User ${userId} was not found.`)
     }
     return user
+  }
+
+  private async findUserPermissions(userId: string): Promise<Permission[]> {
+    const response = await this.dynamoDbService.documentClient.send(
+      new GetCommand({
+        TableName: this.userAccountsTableName,
+        Key: { userId },
+      }),
+    )
+
+    const record = response.Item as UserAccount | undefined
+    return normalizePermissions(record?.permissions)
+  }
+
+  private async putUserAccount(
+    input: Pick<UserAccount, 'userId'> &
+      Partial<Pick<UserAccount, 'username' | 'email' | 'name' | 'permissions'>> & {
+        avatarKey?: string | null
+      },
+  ): Promise<UserAccount> {
+    const existingResponse = await this.dynamoDbService.documentClient.send(
+      new GetCommand({
+        TableName: this.userAccountsTableName,
+        Key: { userId: input.userId },
+      }),
+    )
+    const existing = existingResponse.Item as UserAccount | undefined
+    const timestamp = new Date().toISOString()
+    const record: UserAccount = {
+      userId: input.userId,
+      username: input.username ?? existing?.username ?? input.userId,
+      ...(input.email !== undefined
+        ? { email: input.email }
+        : existing?.email
+          ? { email: existing.email }
+          : {}),
+      ...(input.name !== undefined
+        ? { name: input.name }
+        : existing?.name
+          ? { name: existing.name }
+          : {}),
+      ...(input.avatarKey === null
+        ? {}
+        : input.avatarKey !== undefined
+          ? { avatarKey: input.avatarKey }
+          : existing?.avatarKey
+            ? { avatarKey: existing.avatarKey }
+            : {}),
+      permissions: normalizePermissions(input.permissions ?? existing?.permissions),
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    }
+
+    await this.dynamoDbService.documentClient.send(
+      new PutCommand({
+        TableName: this.userAccountsTableName,
+        Item: record,
+      }),
+    )
+
+    return record
   }
 
   async findCustomerProfileByUsername(username: string): Promise<CustomerProfile> {
@@ -186,13 +455,13 @@ export class UsersService {
   }
 
   async getOwnProfile(user: AuthenticatedUser): Promise<UserProfile> {
-    const storedProfile = await this.findStoredProfile(user.sub)
-    return this.withAvatarReadUrl(toUserProfile(user, storedProfile))
+    const account = await this.findStoredAccount(user.sub)
+    return this.withAvatarReadUrl(toUserProfile(user, account))
   }
 
   async updateOwnProfile(user: AuthenticatedUser, dto: UpdateUserProfileDto): Promise<UserProfile> {
-    const storedProfile = await this.findStoredProfile(user.sub)
-    const previousAvatarKey = storedProfile?.avatarKey
+    const account = await this.findStoredAccount(user.sub)
+    const previousAvatarKey = account?.avatarKey
 
     if (typeof dto.avatarKey === 'string') {
       if (!this.uploadService.isAvatarKeyForUser(dto.avatarKey, user.sub)) {
@@ -202,48 +471,32 @@ export class UsersService {
       await this.uploadService.verifyObjectsExist([dto.avatarKey])
     }
 
-    const timestamp = new Date().toISOString()
-    const nextAvatarKey =
-      dto.avatarKey === null ? undefined : (dto.avatarKey ?? storedProfile?.avatarKey)
-    const nextProfile: UserProfile = {
+    const nextAvatarKey = dto.avatarKey === null ? null : (dto.avatarKey ?? account?.avatarKey)
+    const nextAccount = await this.putUserAccount({
       userId: user.sub,
       username: user.username,
-      ...(user.email ? { email: user.email } : {}),
-      ...(dto.name !== undefined
-        ? { name: dto.name }
-        : storedProfile?.name
-          ? { name: storedProfile.name }
-          : user.name
-            ? { name: user.name }
-            : {}),
-      ...(nextAvatarKey ? { avatarKey: nextAvatarKey } : {}),
-      createdAt: storedProfile?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    }
-
-    await this.dynamoDbService.documentClient.send(
-      new PutCommand({
-        TableName: this.profileTableName,
-        Item: nextProfile,
-      }),
-    )
+      email: user.email,
+      name: dto.name !== undefined ? dto.name : (account?.name ?? user.name),
+      avatarKey: nextAvatarKey,
+      permissions: account?.permissions ?? [],
+    })
 
     if (previousAvatarKey && previousAvatarKey !== nextAvatarKey) {
       await this.uploadService.deleteObjectsBestEffort([previousAvatarKey])
     }
 
-    return this.withAvatarReadUrl(nextProfile)
+    return this.withAvatarReadUrl(toUserProfile(user, nextAccount))
   }
 
-  private async findStoredProfile(userId: string): Promise<UserProfile | null> {
+  private async findStoredAccount(userId: string): Promise<UserAccount | null> {
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
-        TableName: this.profileTableName,
+        TableName: this.userAccountsTableName,
         Key: { userId },
       }),
     )
 
-    return (response.Item as UserProfile | undefined) ?? null
+    return (response.Item as UserAccount | undefined) ?? null
   }
 
   private async withAvatarReadUrl(profile: UserProfile): Promise<UserProfile> {
@@ -260,6 +513,10 @@ export class UsersService {
   }
 }
 
+function isCognitoError(error: unknown, name: string): boolean {
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === name
+}
+
 function toAttributeMap(attributes: AttributeType[]): Record<string, string> {
   return attributes.reduce<Record<string, string>>((result, attribute) => {
     if (attribute.Name && attribute.Value) {
@@ -274,7 +531,7 @@ function normalizeEmail(email: string | undefined): string | undefined {
   return normalizedEmail || undefined
 }
 
-function toUserProfile(user: AuthenticatedUser, storedProfile: UserProfile | null): UserProfile {
+function toUserProfile(user: AuthenticatedUser, storedProfile: UserAccount | null): UserProfile {
   const timestamp = new Date().toISOString()
 
   return {
@@ -285,5 +542,14 @@ function toUserProfile(user: AuthenticatedUser, storedProfile: UserProfile | nul
     ...(storedProfile?.avatarKey ? { avatarKey: storedProfile.avatarKey } : {}),
     createdAt: storedProfile?.createdAt ?? timestamp,
     updatedAt: storedProfile?.updatedAt ?? timestamp,
+  }
+}
+
+function toUserPermissionsRecord(account: UserAccount): UserPermissionsRecord {
+  return {
+    userId: account.userId,
+    permissions: normalizePermissions(account.permissions),
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
   }
 }

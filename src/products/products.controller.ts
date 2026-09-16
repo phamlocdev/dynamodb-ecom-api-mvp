@@ -25,6 +25,8 @@ import {
 } from '@nestjs/swagger'
 import { CreateProductDto } from './dto/create-product.dto'
 import { Public } from '../auth/public.decorator'
+import { Permission } from '../auth/permissions'
+import { RequirePermissions } from '../auth/permissions.decorator'
 import { Role } from '../auth/roles.enum'
 import { Roles } from '../auth/roles.decorator'
 import { ListProductsQueryDto } from './dto/list-products-query.dto'
@@ -42,6 +44,7 @@ export class ProductsController {
 
   @Post()
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.PRODUCTS_CREATE)
   @ApiOperation({ summary: 'Create a product' })
   @ApiCreatedResponse({ type: ProductResponseDto })
   @ApiBadRequestResponse({ description: 'The request body is invalid.' })
@@ -52,6 +55,7 @@ export class ProductsController {
 
   @Get()
   // @Public()
+  @RequirePermissions(Permission.PRODUCTS_READ)
   @ApiOperation({
     summary: 'List products',
     description:
@@ -115,6 +119,7 @@ export class ProductsController {
 
   @Patch(':productId')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.PRODUCTS_UPDATE)
   @ApiOperation({ summary: 'Update one or more mutable product fields' })
   @ApiParam({ name: 'productId', format: 'uuid' })
   @ApiOkResponse({ type: ProductResponseDto })
@@ -129,6 +134,7 @@ export class ProductsController {
 
   @Delete(':productId')
   @Roles(Role.ADMIN)
+  @RequirePermissions(Permission.PRODUCTS_DELETE)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a product' })
   @ApiParam({ name: 'productId', format: 'uuid' })

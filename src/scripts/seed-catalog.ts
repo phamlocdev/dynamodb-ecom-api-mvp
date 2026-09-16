@@ -1,9 +1,5 @@
 import { PutCommand } from '@aws-sdk/lib-dynamodb'
-import {
-  buildSeedCategories,
-  buildSeedProducts,
-  getInventoryQuantity,
-} from './catalog-seed-data'
+import { buildSeedCategories, buildSeedProducts, getInventoryQuantity } from './catalog-seed-data'
 import { exitWithError, getScriptContext, nowIso } from './script-helpers'
 
 export async function seedCatalog(): Promise<void> {

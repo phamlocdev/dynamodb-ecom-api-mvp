@@ -42,7 +42,6 @@ export interface RefundOrderPaymentInput extends QueryOrderPaymentInput {
 @Injectable()
 export class VnpayService {
   private readonly logger = new Logger(VnpayService.name)
-  private readonly returnUrl: string
   private readonly frontendPaymentReturnUrl: string
   private readonly locale: VnpLocale
   private readonly orderType: ProductCode
@@ -60,7 +59,6 @@ export class VnpayService {
 
     this.tmnCode = configService.getOrThrow<string>('VNPAY_TMN_CODE')
     this.secureSecret = configService.getOrThrow<string>('VNPAY_SECURE_SECRET')
-    this.returnUrl = configService.getOrThrow<string>('VNPAY_RETURN_URL')
     this.frontendPaymentReturnUrl = resolveFrontendPaymentReturnUrl(
       configService.getOrThrow<string>('CLIENT_CORS_ORIGINS'),
     )
@@ -80,7 +78,7 @@ export class VnpayService {
       vnp_Locale: this.locale,
       vnp_OrderInfo: input.orderInfo,
       vnp_OrderType: this.orderType,
-      vnp_ReturnUrl: this.returnUrl,
+      vnp_ReturnUrl: this.frontendPaymentReturnUrl,
       vnp_TxnRef: input.orderId,
     })
   }

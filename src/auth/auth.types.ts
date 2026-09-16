@@ -5,6 +5,7 @@ import type {
 } from 'aws-lambda'
 import type { Request } from 'express'
 import { Role } from './roles.enum'
+import { Permission } from './permissions'
 
 export interface AuthenticatedUser {
   sub: string
@@ -12,6 +13,7 @@ export interface AuthenticatedUser {
   email?: string
   name?: string
   groups: Role[]
+  permissions: Permission[]
   tokenUse: 'access'
   scope?: string
   clientId: string

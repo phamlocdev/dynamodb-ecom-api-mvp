@@ -22,6 +22,8 @@ import {
 import { type Request } from 'express'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { AuthenticatedUser } from '../auth/auth.types'
+import { Permission } from '../auth/permissions'
+import { RequirePermissions } from '../auth/permissions.decorator'
 import { Role } from '../auth/roles.enum'
 import { Roles } from '../auth/roles.decorator'
 import { ResendEmailRecipientDto } from '../mail/dto/resend-email-recipient.dto'
@@ -77,6 +79,7 @@ export class OrdersController {
 
   @Get('email-statistics')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.ORDERS_EMAIL_READ)
   @ApiOperation({ summary: 'Get order email delivery statistics' })
   @ApiOkResponse({ description: 'Returns counts by order email type and delivery status.' })
   getEmailStatistics() {
@@ -85,6 +88,7 @@ export class OrdersController {
 
   @Get(':orderId/email-tracking')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.ORDERS_EMAIL_READ)
   @ApiOperation({ summary: 'Get email tracking attempts for one order' })
   @ApiParam({ name: 'orderId', format: 'uuid' })
   @ApiOkResponse({ description: 'Returns order email tracking attempts.' })
@@ -105,6 +109,7 @@ export class OrdersController {
 
   @Patch(':orderId/status')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.ORDERS_UPDATE)
   @ApiOperation({ summary: 'Update an order status' })
   @ApiParam({ name: 'orderId', format: 'uuid' })
   @ApiOkResponse({ type: OrderResponseDto })
@@ -117,6 +122,7 @@ export class OrdersController {
 
   @Post(':orderId/emails/:emailType/resend-failed')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @RequirePermissions(Permission.ORDERS_EMAIL_RESEND)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Resend retryable failed order email recipients' })
   @ApiParam({ name: 'orderId', format: 'uuid' })

@@ -70,7 +70,7 @@ export function registerApiRoutes(
   })
   api.addRoutes({
     path: '/users',
-    methods: [apigatewayv2.HttpMethod.GET],
+    methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.POST],
     integration,
     ...routeAuthOptions(authorizer),
   })
@@ -87,6 +87,24 @@ export function registerApiRoutes(
     ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
+    path: '/users/{userId}',
+    methods: [apigatewayv2.HttpMethod.PATCH, apigatewayv2.HttpMethod.DELETE],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/{userId}/permissions',
+    methods: [apigatewayv2.HttpMethod.PATCH],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/{userId}/password',
+    methods: [apigatewayv2.HttpMethod.PATCH],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
     path: '/users/{userId}/emails/welcome-new-customer/resend-failed',
     methods: [apigatewayv2.HttpMethod.POST],
     integration,
@@ -95,6 +113,12 @@ export function registerApiRoutes(
   api.addRoutes({
     path: '/users/me/profile',
     methods: [apigatewayv2.HttpMethod.GET, apigatewayv2.HttpMethod.PATCH],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/me/password',
+    methods: [apigatewayv2.HttpMethod.POST],
     integration,
     ...routeAuthOptions(authorizer),
   })
