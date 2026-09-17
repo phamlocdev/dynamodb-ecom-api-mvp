@@ -14,6 +14,7 @@ export class DynamoDbConstruct extends Construct {
   readonly eventConsumerIdempotencyTable: dynamodb.Table
   readonly inventoryTable: dynamodb.Table
   readonly userAccountsTable: dynamodb.Table
+  readonly userLoginAuditTable: dynamodb.Table
 
   constructor(scope: Construct, id: string) {
     super(scope, id)
@@ -131,6 +132,15 @@ export class DynamoDbConstruct extends Construct {
       tableName: infraEnv.userAccountsTableName,
       partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    })
+
+    this.userLoginAuditTable = new dynamodb.Table(this, 'UserLoginAuditTable', {
+      tableName: infraEnv.userLoginAuditTableName,
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'loginAt', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiresAt',
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     })
 

@@ -73,6 +73,39 @@ export class UsersController {
     return this.usersService.getWelcomeEmailStatistics()
   }
 
+  @Get('login-audit')
+  @Roles(Role.ADMIN)
+  @RequirePermissions(Permission.USERS_LOGIN_AUDIT_READ)
+  @ApiOperation({ summary: 'Get login audit entries for one user' })
+  @ApiOkResponse({ description: 'Returns login audit entries for an exact user identity.' })
+  getLoginAudit(
+    @Query('userId') userId?: string,
+    @Query('username') username?: string,
+    @Query('email') email?: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    return this.usersService.findLoginAudit({
+      userId,
+      username,
+      email,
+      limit: limit ? Number(limit) : undefined,
+      cursor,
+    })
+  }
+
+  @Post('me/login-context')
+  @Roles(Role.CUSTOMER, Role.MANAGER, Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Record request-derived login context after sign-in' })
+  @ApiNoContentResponse({ description: 'Login context recorded.' })
+  recordLoginContext(@Req() request: AuthenticatedRequest): Promise<void> {
+    return this.usersService.recordLoginContext(request.user!, {
+      ipAddress: getRequestIpAddress(request),
+      userAgent: request.get('user-agent') ?? undefined,
+    })
+  }
+
   @Get(':userId/email-tracking')
   @Roles(Role.ADMIN)
   @RequirePermissions(Permission.USERS_EMAIL_READ)
@@ -119,6 +152,9 @@ export class UsersController {
   ): Promise<ManagedUser> {
     if (dto.enabled === false) {
       assertNotSelfMutation(request, userId, 'You cannot disable your own account.')
+    }
+    if (dto.status && dto.status !== 'ACTIVE') {
+      assertNotSelfMutation(request, userId, 'You cannot block your own account.')
     }
     return this.usersService.updateManagedUser(userId, dto)
   }
@@ -202,6 +238,15 @@ export class UsersController {
   ): Promise<void> {
     await this.usersService.setOwnPassword(request.user!, dto.password)
   }
+}
+
+function getRequestIpAddress(request: AuthenticatedRequest): string | undefined {
+  const forwardedFor = request.get('x-forwarded-for')
+  if (forwardedFor) {
+    return forwardedFor.split(',')[0]?.trim() || undefined
+  }
+
+  return request.ip
 }
 
 function assertNotSelfMutation(

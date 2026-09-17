@@ -10,6 +10,7 @@ import {
   EmailIdempotencyMode,
   EmailSendResult,
   EmailType,
+  SendCognitoAuthEmailInput,
   SendCancelledOrderNotificationEmailInput,
   SendOrderConfirmationEmailInput,
   SendShippedOrderNotificationEmailInput,
@@ -21,12 +22,28 @@ const TEMPLATE_FILES: Record<EmailType, string> = {
   WELCOME_NEW_CUSTOMER: 'welcome-new-customer.hbs',
   SHIPPED_ORDER_NOTIFICATION: 'shipped-order-notification.hbs',
   CANCELLED_ORDER_NOTIFICATION: 'cancelled-order-notification.hbs',
+  COGNITO_SIGN_UP: 'cognito-auth-code.hbs',
+  COGNITO_RESEND_CODE: 'cognito-auth-code.hbs',
+  COGNITO_FORGOT_PASSWORD: 'cognito-auth-code.hbs',
+  COGNITO_ADMIN_CREATE_USER: 'cognito-admin-create-user.hbs',
+  COGNITO_UPDATE_USER_ATTRIBUTE: 'cognito-auth-code.hbs',
+  COGNITO_VERIFY_USER_ATTRIBUTE: 'cognito-auth-code.hbs',
+  COGNITO_AUTHENTICATION: 'cognito-auth-code.hbs',
+  COGNITO_ACCOUNT_TAKEOVER_NOTIFICATION: 'cognito-auth-code.hbs',
 }
 const EMAIL_SUBJECTS: Record<EmailType, string> = {
-  ORDER_CONFIRMATION: 'Xac nhan don hang cua ban',
-  WELCOME_NEW_CUSTOMER: 'Chao mung ban den voi DynamoDB MVP',
-  SHIPPED_ORDER_NOTIFICATION: 'Don hang cua ban da duoc van chuyen',
-  CANCELLED_ORDER_NOTIFICATION: 'Don hang cua ban da bi huy',
+  ORDER_CONFIRMATION: 'Xác nhận đơn hàng của bạn',
+  WELCOME_NEW_CUSTOMER: 'Chào mừng bạn đến với DynamoDB MVP',
+  SHIPPED_ORDER_NOTIFICATION: 'Đơn hàng của bạn đã được vận chuyển',
+  CANCELLED_ORDER_NOTIFICATION: 'Đơn hàng của bạn đã bị hủy',
+  COGNITO_SIGN_UP: 'Mã xác thực tài khoản của bạn',
+  COGNITO_RESEND_CODE: 'Mã xác thực tài khoản của bạn',
+  COGNITO_FORGOT_PASSWORD: 'Mã đặt lại mật khẩu của bạn',
+  COGNITO_ADMIN_CREATE_USER: 'Tài khoản của bạn đã được tạo',
+  COGNITO_UPDATE_USER_ATTRIBUTE: 'Mã xác thực thông tin tài khoản',
+  COGNITO_VERIFY_USER_ATTRIBUTE: 'Mã xác thực thông tin tài khoản',
+  COGNITO_AUTHENTICATION: 'Mã đăng nhập của bạn',
+  COGNITO_ACCOUNT_TAKEOVER_NOTIFICATION: 'Cảnh báo bảo mật tài khoản',
 }
 
 interface OrderConfirmationTemplateItemView {
@@ -67,11 +84,26 @@ interface WelcomeNewCustomerTemplateView {
   email: string
 }
 
+interface CognitoAuthCodeTemplateView {
+  customerName: string
+  username: string
+  code: string
+  purpose: string
+}
+
+interface CognitoAdminCreateUserTemplateView {
+  customerName: string
+  username: string
+  temporaryPassword: string
+}
+
 type MailTemplateView =
   | OrderConfirmationTemplateView
   | ShippedOrderNotificationTemplateView
   | CancelledOrderNotificationTemplateView
   | WelcomeNewCustomerTemplateView
+  | CognitoAuthCodeTemplateView
+  | CognitoAdminCreateUserTemplateView
 
 @Injectable()
 export class SesMailService {
@@ -183,6 +215,18 @@ export class SesMailService {
       subject: this.welcomeNewCustomerSubject,
       templateView: buildWelcomeNewCustomerTemplateView(input),
       resendOfByRecipient: input.resendOfByRecipient,
+    })
+  }
+
+  async sendCognitoAuthEmail(input: SendCognitoAuthEmailInput): Promise<EmailSendResult> {
+    const contextId = input.user.sub ?? input.user.username
+    return this.sendTemplatedEmail({
+      emailType: input.emailType,
+      contextType: 'USER',
+      contextId,
+      recipientEmails: resolveRecipientEmails(input.user.email, undefined, input.recipientEmails),
+      subject: EMAIL_SUBJECTS[input.emailType],
+      templateView: buildCognitoAuthTemplateView(input),
     })
   }
 
@@ -381,7 +425,7 @@ function buildOrderConfirmationTemplateView(
   const paidAt = input.order.paidAt ? formatOrderTimestamp(input.order.paidAt) : 'N/A'
 
   return {
-    customerName: input.order.customerName?.trim() || 'ban',
+    customerName: input.order.customerName?.trim() || 'bạn',
     orderId: input.order.orderId,
     paidAt,
     paymentTransactionId: input.order.paymentTransactionId ?? 'N/A',
@@ -394,7 +438,7 @@ function buildShippedOrderNotificationTemplateView(
   input: SendShippedOrderNotificationEmailInput,
 ): ShippedOrderNotificationTemplateView {
   return {
-    customerName: input.order.customerName?.trim() || 'ban',
+    customerName: input.order.customerName?.trim() || 'bạn',
     orderId: input.order.orderId,
     shippedAt: formatOrderTimestamp(input.shippedAt),
     totalAmount: formatCurrency(input.order.totalAmount ?? 0),
@@ -406,7 +450,7 @@ function buildCancelledOrderNotificationTemplateView(
   input: SendCancelledOrderNotificationEmailInput,
 ): CancelledOrderNotificationTemplateView {
   return {
-    customerName: input.order.customerName?.trim() || 'ban',
+    customerName: input.order.customerName?.trim() || 'bạn',
     orderId: input.order.orderId,
     cancelledAt: formatOrderTimestamp(input.cancelledAt),
     totalAmount: formatCurrency(input.order.totalAmount ?? 0),
@@ -418,9 +462,49 @@ function buildWelcomeNewCustomerTemplateView(
   input: SendWelcomeNewCustomerEmailInput,
 ): WelcomeNewCustomerTemplateView {
   return {
-    customerName: input.user.name?.trim() || input.user.username || 'ban',
+    customerName: input.user.name?.trim() || input.user.username || 'bạn',
     username: input.user.username,
     email: input.user.email ?? 'N/A',
+  }
+}
+
+function buildCognitoAuthTemplateView(
+  input: SendCognitoAuthEmailInput,
+): CognitoAuthCodeTemplateView | CognitoAdminCreateUserTemplateView {
+  const customerName = input.user.name?.trim() || input.user.username || 'bạn'
+  if (input.emailType === 'COGNITO_ADMIN_CREATE_USER') {
+    return {
+      customerName,
+      username: input.user.username,
+      temporaryPassword: input.code ?? 'N/A',
+    }
+  }
+
+  return {
+    customerName,
+    username: input.user.username,
+    code: input.code ?? 'N/A',
+    purpose: describeCognitoAuthEmailPurpose(input.emailType),
+  }
+}
+
+function describeCognitoAuthEmailPurpose(
+  emailType: SendCognitoAuthEmailInput['emailType'],
+): string {
+  switch (emailType) {
+    case 'COGNITO_FORGOT_PASSWORD':
+      return 'đặt lại mật khẩu'
+    case 'COGNITO_AUTHENTICATION':
+      return 'hoàn tất đăng nhập'
+    case 'COGNITO_UPDATE_USER_ATTRIBUTE':
+    case 'COGNITO_VERIFY_USER_ATTRIBUTE':
+      return 'xác thực thông tin tài khoản'
+    case 'COGNITO_ACCOUNT_TAKEOVER_NOTIFICATION':
+      return 'xác minh hoạt động bảo mật'
+    case 'COGNITO_SIGN_UP':
+    case 'COGNITO_RESEND_CODE':
+    case 'COGNITO_ADMIN_CREATE_USER':
+      return 'xác thực tài khoản'
   }
 }
 

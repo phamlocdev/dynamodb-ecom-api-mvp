@@ -25,6 +25,7 @@ export interface LambdaApiConstructProps {
   emailTrackingTable: dynamodb.ITable
   inventoryTable: dynamodb.ITable
   userAccountsTable: dynamodb.ITable
+  userLoginAuditTable: dynamodb.ITable
   mediaBucket: s3.IBucket
   placeOrderQueue: sqs.IQueue
   orderEventsBus: events.IEventBus
@@ -61,6 +62,7 @@ export class LambdaApiConstruct extends Construct {
         EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
         INVENTORY_TABLE: props.inventoryTable.tableName,
         USER_ACCOUNTS_TABLE: props.userAccountsTable.tableName,
+        USER_LOGIN_AUDIT_TABLE: props.userLoginAuditTable.tableName,
         MEDIA_BUCKET_NAME: props.mediaBucket.bucketName,
         PRODUCT_IMAGE_MAX_COUNT: String(infraEnv.productImageMaxCount),
         MEDIA_READ_URL_TTL_SECONDS: String(infraEnv.mediaReadUrlTtlSeconds),
@@ -94,6 +96,7 @@ export class LambdaApiConstruct extends Construct {
     props.emailTrackingTable.grantReadWriteData(this.apiHandler)
     props.inventoryTable.grantReadWriteData(this.apiHandler)
     props.userAccountsTable.grantReadWriteData(this.apiHandler)
+    props.userLoginAuditTable.grantReadWriteData(this.apiHandler)
     props.placeOrderQueue.grantSendMessages(this.apiHandler)
     props.orderEventsBus.grantPutEventsTo(this.apiHandler)
     this.apiHandler.addToRolePolicy(

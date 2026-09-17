@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsBoolean, IsEmail, IsOptional, IsString } from 'class-validator'
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString } from 'class-validator'
+import { UserAccountStatus } from '../user.types'
 
 export class UpdateManagedUserDto {
   @ApiPropertyOptional({ example: 'manager@example.com' })
@@ -16,4 +17,9 @@ export class UpdateManagedUserDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean
+
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'SUSPENDED', 'PENDING_APPROVAL', 'DELETED'] })
+  @IsOptional()
+  @IsIn(['ACTIVE', 'SUSPENDED', 'PENDING_APPROVAL', 'DELETED'])
+  status?: UserAccountStatus
 }

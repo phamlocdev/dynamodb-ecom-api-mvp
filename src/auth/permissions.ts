@@ -20,6 +20,7 @@ export const Permission = {
   USERS_PERMISSIONS_UPDATE: 'users:permissions:update',
   USERS_EMAIL_READ: 'users:email:read',
   USERS_EMAIL_RESEND: 'users:email:resend',
+  USERS_LOGIN_AUDIT_READ: 'users:login-audit:read',
 } as const
 
 export type Permission = (typeof Permission)[keyof typeof Permission]

@@ -1,5 +1,6 @@
 import { ConsoleLogger, INestApplicationContext } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
+import { CognitoTriggersModule } from './cognito/cognito-triggers.module'
 import { PostConfirmationModule } from './cognito/post-confirmation.module'
 import { SesEventProcessorModule } from './mail/ses-event-processor.module'
 import { OrderNotificationWorkerModule } from './notifications/order-notification-worker.module'
@@ -34,6 +35,15 @@ export async function createOrderNotificationWorkerApp(): Promise<INestApplicati
 
 export async function createPostConfirmationApp(): Promise<INestApplicationContext> {
   return NestFactory.createApplicationContext(PostConfirmationModule, {
+    logger: new ConsoleLogger('', {
+      logLevels: ['log', 'error', 'warn'],
+      colors: false,
+    }),
+  })
+}
+
+export async function createCognitoTriggersApp(): Promise<INestApplicationContext> {
+  return NestFactory.createApplicationContext(CognitoTriggersModule, {
     logger: new ConsoleLogger('', {
       logLevels: ['log', 'error', 'warn'],
       colors: false,

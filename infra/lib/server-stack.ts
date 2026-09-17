@@ -35,6 +35,7 @@ export class ServerStack extends cdk.Stack {
       googleClientSecret: env.googleClientSecret,
       emailTrackingTable: data.emailTrackingTable,
       userAccountsTable: data.userAccountsTable,
+      userLoginAuditTable: data.userLoginAuditTable,
     })
 
     const storage = new S3Construct(this, 'Storage', {
@@ -50,6 +51,7 @@ export class ServerStack extends cdk.Stack {
       emailTrackingTable: data.emailTrackingTable,
     })
     notification.grantSendEmail(auth.postConfirmationHandler)
+    notification.grantSendEmail(auth.customEmailSenderHandler)
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
       productsTable: data.productsTable,
@@ -61,6 +63,7 @@ export class ServerStack extends cdk.Stack {
       emailTrackingTable: data.emailTrackingTable,
       inventoryTable: data.inventoryTable,
       userAccountsTable: data.userAccountsTable,
+      userLoginAuditTable: data.userLoginAuditTable,
       mediaBucket: storage.mediaBucket,
       placeOrderQueue: messaging.placeOrderQueue,
       orderEventsBus,
@@ -111,6 +114,10 @@ export class ServerStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'UserAccountsTableName', {
       value: data.userAccountsTable.tableName,
+    })
+
+    new cdk.CfnOutput(this, 'UserLoginAuditTableName', {
+      value: data.userLoginAuditTable.tableName,
     })
 
     new cdk.CfnOutput(this, 'CognitoUserPoolId', {

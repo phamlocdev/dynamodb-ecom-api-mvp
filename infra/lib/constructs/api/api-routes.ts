@@ -81,6 +81,18 @@ export function registerApiRoutes(
     ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
+    path: '/users/login-audit',
+    methods: [apigatewayv2.HttpMethod.GET],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
+    path: '/users/me/login-context',
+    methods: [apigatewayv2.HttpMethod.POST],
+    integration,
+    ...routeAuthOptions(authorizer),
+  })
+  api.addRoutes({
     path: '/users/{userId}/email-tracking',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,
