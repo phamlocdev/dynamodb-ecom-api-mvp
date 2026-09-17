@@ -8,6 +8,7 @@ import { DynamoDbService } from '../dynamodb/dynamodb.service'
 type UserAccountRecord = {
   userId: string
   permissions?: unknown
+  passwordStatus?: 'REQUIRED' | 'SET'
 }
 
 @Injectable()
@@ -24,7 +25,9 @@ export class PreTokenGenerationService {
 
   async handle(event: PreTokenGenerationV2TriggerEvent): Promise<PreTokenGenerationV2TriggerEvent> {
     const userId = event.request.userAttributes.sub
-    const permissions = userId ? await this.findPermissions(userId) : []
+    const account = userId ? await this.findAccount(userId) : undefined
+    const permissions = normalizePermissions(account?.permissions)
+    const passwordStatus = resolvePasswordStatus(account, event.userName)
 
     event.response.claimsAndScopeOverrideDetails ??= {}
     event.response.claimsAndScopeOverrideDetails.accessTokenGeneration ??= {}
@@ -32,12 +35,19 @@ export class PreTokenGenerationService {
       ...(event.response.claimsAndScopeOverrideDetails.accessTokenGeneration
         .claimsToAddOrOverride ?? {}),
       'app:permissions': permissions,
+      'app:password_status': passwordStatus,
     } as unknown as Record<string, string>
+    event.response.claimsAndScopeOverrideDetails.idTokenGeneration ??= {}
+    event.response.claimsAndScopeOverrideDetails.idTokenGeneration.claimsToAddOrOverride = {
+      ...(event.response.claimsAndScopeOverrideDetails.idTokenGeneration.claimsToAddOrOverride ??
+        {}),
+      'app:password_status': passwordStatus,
+    } as Record<string, string>
 
     return event
   }
 
-  private async findPermissions(userId: string): Promise<string[]> {
+  private async findAccount(userId: string): Promise<UserAccountRecord | undefined> {
     const response = await this.dynamoDbService.documentClient.send(
       new GetCommand({
         TableName: this.userAccountsTableName,
@@ -45,7 +55,17 @@ export class PreTokenGenerationService {
       }),
     )
 
-    const record = response.Item as UserAccountRecord | undefined
-    return normalizePermissions(record?.permissions)
+    return response.Item as UserAccountRecord | undefined
   }
+}
+
+function resolvePasswordStatus(
+  account: UserAccountRecord | undefined,
+  username: string | undefined,
+): 'REQUIRED' | 'SET' {
+  if (account?.passwordStatus) {
+    return account.passwordStatus
+  }
+
+  return username?.toLowerCase().startsWith('google_') ? 'REQUIRED' : 'SET'
 }

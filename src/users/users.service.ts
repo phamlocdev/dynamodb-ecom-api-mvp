@@ -40,6 +40,7 @@ import {
   UserLoginAudit,
   UserLoginAuditQueryResult,
   UserPermissionsRecord,
+  UserPasswordStatus,
   UserProfile,
 } from './user.types'
 
@@ -140,6 +141,7 @@ export class UsersService {
         email: user.email,
         name: user.name,
         permissions: normalizePermissions(dto.permissions),
+        passwordStatus: 'SET',
       })
     }
 
@@ -260,6 +262,14 @@ export class UsersService {
         Permanent: true,
       }),
     )
+
+    await this.putUserAccount({
+      userId: user.sub,
+      username: user.username,
+      email: user.email,
+      name: user.name,
+      passwordStatus: 'SET',
+    })
   }
 
   async getWelcomeEmailStatistics(): Promise<EmailDeliveryStatistics> {
@@ -456,6 +466,7 @@ export class UsersService {
       const account = await this.findStoredAccount(managedUser.sub)
       managedUser.permissions = normalizePermissions(account?.permissions)
       managedUser.accountStatus = account?.status
+      managedUser.passwordStatus = resolvePasswordStatus(account, managedUser.username)
       managedUser.welcomeEmailTracking = await this.emailTrackingService.getLatestSummary(
         'USER',
         managedUser.sub,
@@ -509,6 +520,7 @@ export class UsersService {
   private async putUserAccount(
     input: Pick<UserAccount, 'userId'> &
       Partial<Pick<UserAccount, 'username' | 'email' | 'name' | 'permissions' | 'status'>> & {
+        passwordStatus?: UserPasswordStatus
         avatarKey?: string | null
       },
   ): Promise<UserAccount> {
@@ -542,6 +554,10 @@ export class UsersService {
             : {}),
       permissions: normalizePermissions(input.permissions ?? existing?.permissions),
       status: input.status ?? existing?.status ?? 'ACTIVE',
+      passwordStatus:
+        input.passwordStatus ??
+        existing?.passwordStatus ??
+        resolvePasswordStatus(existing, input.username ?? existing?.username ?? input.userId),
       ...(existing?.lastLoginAt ? { lastLoginAt: existing.lastLoginAt } : {}),
       ...(existing?.lastLoginIp ? { lastLoginIp: existing.lastLoginIp } : {}),
       ...(existing?.lastLoginUserAgent ? { lastLoginUserAgent: existing.lastLoginUserAgent } : {}),
@@ -579,11 +595,17 @@ export class UsersService {
 
   async getOwnProfile(user: AuthenticatedUser): Promise<UserProfile> {
     const account = await this.findStoredAccount(user.sub)
-    return this.withAvatarReadUrl(toUserProfile(user, account))
+    const cognitoProfile = await this.findCognitoProfileForAuthenticatedUser(user, account)
+    const profileUser = mergeAuthenticatedUserProfile(user, account, cognitoProfile)
+    const storedAccount = await this.backfillStoredAccountProfile(profileUser, account)
+
+    return this.withAvatarReadUrl(toUserProfile(profileUser, storedAccount))
   }
 
   async updateOwnProfile(user: AuthenticatedUser, dto: UpdateUserProfileDto): Promise<UserProfile> {
     const account = await this.findStoredAccount(user.sub)
+    const cognitoProfile = await this.findCognitoProfileForAuthenticatedUser(user, account)
+    const profileUser = mergeAuthenticatedUserProfile(user, account, cognitoProfile)
     const previousAvatarKey = account?.avatarKey
 
     if (typeof dto.avatarKey === 'string') {
@@ -598,8 +620,8 @@ export class UsersService {
     const nextAccount = await this.putUserAccount({
       userId: user.sub,
       username: user.username,
-      email: user.email,
-      name: dto.name !== undefined ? dto.name : (account?.name ?? user.name),
+      email: profileUser.email,
+      name: dto.name !== undefined ? dto.name : (account?.name ?? profileUser.name),
       avatarKey: nextAvatarKey,
       permissions: account?.permissions ?? [],
     })
@@ -608,7 +630,7 @@ export class UsersService {
       await this.uploadService.deleteObjectsBestEffort([previousAvatarKey])
     }
 
-    return this.withAvatarReadUrl(toUserProfile(user, nextAccount))
+    return this.withAvatarReadUrl(toUserProfile(profileUser, nextAccount))
   }
 
   private async findStoredAccount(userId: string): Promise<UserAccount | null> {
@@ -620,6 +642,49 @@ export class UsersService {
     )
 
     return (response.Item as UserAccount | undefined) ?? null
+  }
+
+  private async findCognitoProfileForAuthenticatedUser(
+    user: AuthenticatedUser,
+    account: UserAccount | null,
+  ): Promise<CustomerProfile | null> {
+    if (user.email && (user.name || account?.name)) {
+      return null
+    }
+
+    try {
+      return await this.findCustomerProfileByUsername(user.username)
+    } catch (error) {
+      this.logger.warn(
+        JSON.stringify({
+          action: 'cognito-profile-lookup-failed',
+          userId: user.sub,
+          username: user.username,
+          reason: error instanceof Error ? error.message : 'unknown-error',
+        }),
+      )
+      return null
+    }
+  }
+
+  private async backfillStoredAccountProfile(
+    user: AuthenticatedUser,
+    account: UserAccount | null,
+  ): Promise<UserAccount | null> {
+    if ((account?.email || !user.email) && (account?.name || !user.name)) {
+      return account
+    }
+
+    return this.putUserAccount({
+      userId: user.sub,
+      username: account?.username ?? user.username,
+      email: account?.email ?? user.email,
+      name: account?.name ?? user.name,
+      avatarKey: account?.avatarKey,
+      permissions: account?.permissions ?? [],
+      status: account?.status,
+      passwordStatus: resolvePasswordStatus(account, user.username),
+    })
   }
 
   private async findLatestLoginAudit(userId: string): Promise<UserLoginAudit | undefined> {
@@ -740,18 +805,46 @@ function escapeCognitoFilterValue(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
+function mergeAuthenticatedUserProfile(
+  user: AuthenticatedUser,
+  storedProfile: UserAccount | null,
+  cognitoProfile: CustomerProfile | null,
+): AuthenticatedUser {
+  return {
+    ...user,
+    email: user.email ?? storedProfile?.email ?? cognitoProfile?.email,
+    name: user.name ?? storedProfile?.name ?? cognitoProfile?.name,
+  }
+}
+
 function toUserProfile(user: AuthenticatedUser, storedProfile: UserAccount | null): UserProfile {
   const timestamp = new Date().toISOString()
 
   return {
     userId: user.sub,
     username: user.username,
-    ...(user.email ? { email: user.email } : {}),
+    ...((user.email ?? storedProfile?.email) ? { email: user.email ?? storedProfile?.email } : {}),
     ...(storedProfile?.name ? { name: storedProfile.name } : user.name ? { name: user.name } : {}),
     ...(storedProfile?.avatarKey ? { avatarKey: storedProfile.avatarKey } : {}),
+    passwordStatus: resolvePasswordStatus(storedProfile, user.username),
     createdAt: storedProfile?.createdAt ?? timestamp,
     updatedAt: storedProfile?.updatedAt ?? timestamp,
   }
+}
+
+function resolvePasswordStatus(
+  account: Pick<UserAccount, 'passwordStatus'> | null | undefined,
+  username: string | undefined,
+): UserPasswordStatus {
+  if (account?.passwordStatus) {
+    return account.passwordStatus
+  }
+
+  return isGoogleFederatedUsername(username) ? 'REQUIRED' : 'SET'
+}
+
+function isGoogleFederatedUsername(username: string | undefined): boolean {
+  return Boolean(username?.toLowerCase().startsWith('google_'))
 }
 
 function toUserPermissionsRecord(account: UserAccount): UserPermissionsRecord {

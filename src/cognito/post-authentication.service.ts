@@ -60,6 +60,7 @@ export class PostAuthenticationService {
             'SET #username = if_not_exists(#username, :username)',
             '#email = if_not_exists(#email, :email)',
             '#status = if_not_exists(#status, :active)',
+            '#passwordStatus = if_not_exists(#passwordStatus, :passwordStatus)',
             '#permissions = if_not_exists(#permissions, :emptyPermissions)',
             '#createdAt = if_not_exists(#createdAt, :loginAt)',
             '#lastLoginAt = :loginAt',
@@ -70,6 +71,7 @@ export class PostAuthenticationService {
             '#username': 'username',
             '#email': 'email',
             '#status': 'status',
+            '#passwordStatus': 'passwordStatus',
             '#permissions': 'permissions',
             '#createdAt': 'createdAt',
             '#lastLoginAt': 'lastLoginAt',
@@ -80,6 +82,7 @@ export class PostAuthenticationService {
             ':username': event.userName,
             ':email': event.request.userAttributes.email ?? '',
             ':active': 'ACTIVE',
+            ':passwordStatus': isGoogleFederatedUsername(event.userName) ? 'REQUIRED' : 'SET',
             ':emptyPermissions': [],
             ':loginAt': loginAt,
             ':zero': 0,
@@ -166,4 +169,8 @@ export class PostAuthenticationService {
       throw error
     }
   }
+}
+
+function isGoogleFederatedUsername(username: string | undefined): boolean {
+  return Boolean(username?.toLowerCase().startsWith('google_'))
 }

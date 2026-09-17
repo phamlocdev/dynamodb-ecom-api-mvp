@@ -56,25 +56,30 @@ export class PostConfirmationService {
       }),
     )
 
-    await this.cognitoClient.send(
-      new AdminAddUserToGroupCommand({
-        GroupName: this.defaultGroup,
-        UserPoolId: event.userPoolId,
-        Username: event.userName,
-      }),
-    )
-    this.logger.log(
-      JSON.stringify({
-        action: 'user-added-to-group',
-        triggerSource: event.triggerSource,
-        userPoolId: event.userPoolId,
-        userName: event.userName,
-        groupName: this.defaultGroup,
-      }),
-    )
+    // Only create user account and send welcome email if the trigger source is PostConfirmation_ConfirmSignUp
+    // And skip for PostConfirmation_ConfirmForgotPassword, PostConfirmation_ConfirmSignIn, and PostConfirmation_ConfirmSignUp_AdminCreateUser
+    if (event.triggerSource === 'PostConfirmation_ConfirmSignUp') {
+      await this.cognitoClient.send(
+        new AdminAddUserToGroupCommand({
+          GroupName: this.defaultGroup,
+          UserPoolId: event.userPoolId,
+          Username: event.userName,
+        }),
+      )
 
-    await this.createUserAccount(event)
-    await this.sendWelcomeEmailBestEffort(event)
+      this.logger.log(
+        JSON.stringify({
+          action: 'user-added-to-group',
+          triggerSource: event.triggerSource,
+          userPoolId: event.userPoolId,
+          userName: event.userName,
+          groupName: this.defaultGroup,
+        }),
+      )
+
+      await this.createUserAccount(event)
+      await this.sendWelcomeEmailBestEffort(event)
+    }
 
     this.logger.log(
       JSON.stringify({
@@ -114,6 +119,7 @@ export class PostConfirmationService {
           ...(attributes.email ? { email: attributes.email } : {}),
           ...(attributes.name ? { name: attributes.name } : {}),
           status: 'ACTIVE',
+          passwordStatus: isFederatedSignUp(event) ? 'REQUIRED' : 'SET',
           permissions: [],
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -128,6 +134,7 @@ export class PostConfirmationService {
         userName: event.userName,
         userId: sub,
         status: 'ACTIVE',
+        passwordStatus: isFederatedSignUp(event) ? 'REQUIRED' : 'SET',
         createdAt: timestamp,
       }),
     )
@@ -200,5 +207,32 @@ export class PostConfirmationService {
         error instanceof Error ? error.stack : undefined,
       )
     }
+  }
+}
+
+function isFederatedSignUp(event: PostConfirmationTriggerEvent): boolean {
+  const attributes = event.request.userAttributes ?? {}
+  const identities = attributes.identities
+
+  if (event.userName.toLowerCase().startsWith('google_')) {
+    return true
+  }
+
+  if (!identities) {
+    return false
+  }
+
+  try {
+    const parsed = JSON.parse(identities) as Array<Record<string, unknown>>
+    return parsed.some((identity) => {
+      const providerName = identity.providerName
+      const providerType = identity.providerType
+      return (
+        (typeof providerName === 'string' && providerName.toLowerCase() === 'google') ||
+        (typeof providerType === 'string' && providerType.toLowerCase() === 'google')
+      )
+    })
+  } catch {
+    return false
   }
 }

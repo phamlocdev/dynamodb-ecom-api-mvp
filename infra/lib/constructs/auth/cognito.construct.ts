@@ -124,6 +124,18 @@ export class CognitoConstruct extends Construct {
         COGNITO_DISPOSABLE_EMAIL_DOMAINS: infraEnv.cognitoDisposableEmailDomains.join(','),
       },
     })
+    this.preSignUpHandler.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['cognito-idp:ListUsers'],
+        resources: [
+          cdk.Stack.of(this).formatArn({
+            service: 'cognito-idp',
+            resource: 'userpool',
+            resourceName: '*',
+          }),
+        ],
+      }),
+    )
     this.userPool.addTrigger(cognito.UserPoolOperation.PRE_SIGN_UP, this.preSignUpHandler)
 
     this.preAuthenticationHandler = new nodejs.NodejsFunction(this, 'PreAuthenticationHandler', {

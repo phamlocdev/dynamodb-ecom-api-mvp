@@ -15,9 +15,11 @@ export type ManagedUser = {
   createdAt?: string
   updatedAt?: string
   welcomeEmailTracking?: EmailDeliverySummary
+  passwordStatus?: UserPasswordStatus
 }
 
 export type UserAccountStatus = 'ACTIVE' | 'SUSPENDED' | 'PENDING_APPROVAL' | 'DELETED'
+export type UserPasswordStatus = 'REQUIRED' | 'SET'
 
 export interface CustomerProfile {
   username: string
@@ -34,6 +36,7 @@ export interface UserProfile {
   avatarKey?: string
   avatarReadUrl?: string
   avatarReadUrlExpiresInSeconds?: number
+  passwordStatus: UserPasswordStatus
   createdAt: string
   updatedAt: string
 }
@@ -45,6 +48,7 @@ export type UserAccount = {
   name?: string
   avatarKey?: string
   status?: UserAccountStatus
+  passwordStatus?: UserPasswordStatus
   permissions: Permission[]
   lastLoginAt?: string
   lastLoginIp?: string
