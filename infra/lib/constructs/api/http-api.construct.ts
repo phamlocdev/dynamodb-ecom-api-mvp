@@ -47,6 +47,7 @@ export class HttpApiConstruct extends Construct {
       props.apiHandler,
       {
         payloadFormatVersion: apigatewayv2.PayloadFormatVersion.VERSION_2_0,
+        scopePermissionToRoute: false,
       },
     )
 

@@ -35,8 +35,26 @@ export class PostConfirmationService {
 
   async handle(event: PostConfirmationTriggerEvent): Promise<PostConfirmationTriggerEvent> {
     if (!event.userPoolId || !event.userName) {
+      this.logger.warn(
+        JSON.stringify({
+          action: 'post-confirmation-skipped',
+          reason: 'missing-user-pool-id-or-user-name',
+          triggerSource: event.triggerSource,
+          userPoolId: event.userPoolId,
+          userName: event.userName,
+        }),
+      )
       return event
     }
+
+    this.logger.log(
+      JSON.stringify({
+        action: 'post-confirmation-start',
+        triggerSource: event.triggerSource,
+        userPoolId: event.userPoolId,
+        userName: event.userName,
+      }),
+    )
 
     await this.cognitoClient.send(
       new AdminAddUserToGroupCommand({
@@ -45,9 +63,27 @@ export class PostConfirmationService {
         Username: event.userName,
       }),
     )
+    this.logger.log(
+      JSON.stringify({
+        action: 'user-added-to-group',
+        triggerSource: event.triggerSource,
+        userPoolId: event.userPoolId,
+        userName: event.userName,
+        groupName: this.defaultGroup,
+      }),
+    )
 
     await this.createUserAccount(event)
     await this.sendWelcomeEmailBestEffort(event)
+
+    this.logger.log(
+      JSON.stringify({
+        action: 'post-confirmation-finished',
+        triggerSource: event.triggerSource,
+        userPoolId: event.userPoolId,
+        userName: event.userName,
+      }),
+    )
     return event
   }
 
@@ -56,7 +92,15 @@ export class PostConfirmationService {
     const sub = attributes.sub
 
     if (!sub) {
-      this.logger.warn(`Skipped account metadata creation for ${event.userName}: missing sub.`)
+      this.logger.warn(
+        JSON.stringify({
+          action: 'account-metadata-creation-skipped',
+          reason: 'missing-sub',
+          triggerSource: event.triggerSource,
+          userPoolId: event.userPoolId,
+          userName: event.userName,
+        }),
+      )
       return
     }
 
@@ -69,10 +113,22 @@ export class PostConfirmationService {
           username: event.userName,
           ...(attributes.email ? { email: attributes.email } : {}),
           ...(attributes.name ? { name: attributes.name } : {}),
+          status: 'ACTIVE',
           permissions: [],
           createdAt: timestamp,
           updatedAt: timestamp,
         },
+      }),
+    )
+    this.logger.log(
+      JSON.stringify({
+        action: 'account-metadata-created',
+        triggerSource: event.triggerSource,
+        userPoolId: event.userPoolId,
+        userName: event.userName,
+        userId: sub,
+        status: 'ACTIVE',
+        createdAt: timestamp,
       }),
     )
   }
@@ -83,7 +139,16 @@ export class PostConfirmationService {
     const email = attributes.email
 
     if (!sub || !email) {
-      this.logger.warn(`Skipped welcome email for ${event.userName}: missing sub or email.`)
+      this.logger.warn(
+        JSON.stringify({
+          action: 'welcome-email-skipped',
+          reason: !sub ? 'missing-sub' : 'missing-email',
+          triggerSource: event.triggerSource,
+          userPoolId: event.userPoolId,
+          userName: event.userName,
+          userId: sub,
+        }),
+      )
       return
     }
 
@@ -99,13 +164,40 @@ export class PostConfirmationService {
 
       if (result.status === 'SKIPPED') {
         this.logger.warn(
-          `Skipped welcome email for ${event.userName}: ${result.reason ?? 'unknown-reason'}.`,
+          JSON.stringify({
+            action: 'welcome-email-skipped',
+            reason: result.reason ?? 'unknown-reason',
+            triggerSource: event.triggerSource,
+            userPoolId: event.userPoolId,
+            userName: event.userName,
+            userId: sub,
+            status: result.status,
+          }),
         )
+        return
       }
+
+      this.logger.log(
+        JSON.stringify({
+          action: 'welcome-email-sent',
+          triggerSource: event.triggerSource,
+          userPoolId: event.userPoolId,
+          userName: event.userName,
+          userId: sub,
+          status: result.status,
+          messageId: result.messageId,
+        }),
+      )
     } catch (error) {
       this.logger.error(
-        `Unexpected failure while sending welcome email for ${event.userName}.`,
-        error,
+        JSON.stringify({
+          action: 'welcome-email-send-failed',
+          triggerSource: event.triggerSource,
+          userPoolId: event.userPoolId,
+          userName: event.userName,
+          userId: sub,
+        }),
+        error instanceof Error ? error.stack : undefined,
       )
     }
   }

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -20,7 +21,7 @@ import {
   type AttributeType,
   type UserType,
 } from '@aws-sdk/client-cognito-identity-provider'
-import { GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb'
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb'
 import { normalizePermissions, Permission } from '../auth/permissions'
 import { AuthenticatedUser } from '../auth/auth.types'
 import { DynamoDbService } from '../dynamodb/dynamodb.service'
@@ -36,14 +37,18 @@ import {
   ManagedUser,
   ResendUserEmailResult,
   UserAccount,
+  UserLoginAudit,
+  UserLoginAuditQueryResult,
   UserPermissionsRecord,
   UserProfile,
 } from './user.types'
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name)
   private readonly userPoolId: string
   private readonly userAccountsTableName: string
+  private readonly userLoginAuditTableName: string
   private readonly cognitoClient: CognitoIdentityProviderClient
 
   constructor(
@@ -59,6 +64,8 @@ export class UsersService {
   ) {
     this.userPoolId = configService.get<string>('COGNITO_USER_POOL_ID') ?? ''
     this.userAccountsTableName = configService.get<string>('USER_ACCOUNTS_TABLE') ?? 'user-accounts'
+    this.userLoginAuditTableName =
+      configService.get<string>('USER_LOGIN_AUDIT_TABLE') ?? 'user-login-audit'
 
     const region =
       configService.get<string>('AWS_REGION') ??
@@ -106,7 +113,7 @@ export class UsersService {
         new AdminCreateUserCommand({
           UserPoolId: this.userPoolId,
           Username: dto.username,
-          MessageAction: 'SUPPRESS',
+          TemporaryPassword: dto.password,
           UserAttributes: attributes,
         }),
       )
@@ -116,16 +123,6 @@ export class UsersService {
       }
       throw error
     }
-
-    await this.cognitoClient.send(
-      new AdminSetUserPasswordCommand({
-        UserPoolId: this.userPoolId,
-        Username: dto.username,
-        Password: dto.password,
-        // Permanent: true,
-        Permanent: false, // Set to false to allow the user to change their password on first login
-      }),
-    )
 
     await this.cognitoClient.send(
       new AdminAddUserToGroupCommand({
@@ -176,6 +173,17 @@ export class UsersService {
         email: dto.email ?? user.email,
         name: dto.name ?? user.name,
         permissions: user.permissions,
+      })
+    }
+
+    if (dto.status !== undefined) {
+      await this.putUserAccount({
+        userId,
+        username: user.username,
+        email: dto.email ?? user.email,
+        name: dto.name ?? user.name,
+        permissions: user.permissions,
+        status: dto.status,
       })
     }
 
@@ -310,6 +318,114 @@ export class UsersService {
     }
   }
 
+  async recordLoginContext(
+    user: AuthenticatedUser,
+    input: { ipAddress?: string; userAgent?: string },
+  ): Promise<void> {
+    const updatedAt = new Date().toISOString()
+    const expressionAttributeNames: Record<string, string> = {
+      '#updatedAt': 'updatedAt',
+    }
+    const expressionAttributeValues: Record<string, unknown> = {
+      ':updatedAt': updatedAt,
+    }
+    const setExpressions = ['#updatedAt = :updatedAt']
+
+    if (input.ipAddress) {
+      expressionAttributeNames['#lastLoginIp'] = 'lastLoginIp'
+      expressionAttributeValues[':lastLoginIp'] = input.ipAddress
+      setExpressions.push('#lastLoginIp = :lastLoginIp')
+    }
+
+    if (input.userAgent) {
+      expressionAttributeNames['#lastLoginUserAgent'] = 'lastLoginUserAgent'
+      expressionAttributeValues[':lastLoginUserAgent'] = input.userAgent
+      setExpressions.push('#lastLoginUserAgent = :lastLoginUserAgent')
+    }
+
+    await this.dynamoDbService.documentClient.send(
+      new UpdateCommand({
+        TableName: this.userAccountsTableName,
+        Key: { userId: user.sub },
+        UpdateExpression: `SET ${setExpressions.join(', ')}`,
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+      }),
+    )
+
+    const latestAudit = await this.findLatestLoginAudit(user.sub)
+    if (latestAudit && (input.ipAddress || input.userAgent)) {
+      const auditNames: Record<string, string> = { '#updatedAt': 'updatedAt' }
+      const auditValues: Record<string, unknown> = { ':updatedAt': updatedAt }
+      const auditSetExpressions = ['#updatedAt = :updatedAt']
+
+      if (input.ipAddress) {
+        auditNames['#ipAddress'] = 'ipAddress'
+        auditValues[':ipAddress'] = input.ipAddress
+        auditSetExpressions.push('#ipAddress = :ipAddress')
+      }
+
+      if (input.userAgent) {
+        auditNames['#userAgent'] = 'userAgent'
+        auditValues[':userAgent'] = input.userAgent
+        auditSetExpressions.push('#userAgent = :userAgent')
+      }
+
+      await this.dynamoDbService.documentClient.send(
+        new UpdateCommand({
+          TableName: this.userLoginAuditTableName,
+          Key: { userId: user.sub, loginAt: latestAudit.loginAt },
+          UpdateExpression: `SET ${auditSetExpressions.join(', ')}`,
+          ExpressionAttributeNames: auditNames,
+          ExpressionAttributeValues: auditValues,
+        }),
+      )
+    }
+
+    this.logger.log(
+      JSON.stringify({
+        action: 'login-context-recorded',
+        userId: user.sub,
+        username: user.username,
+        hasIpAddress: Boolean(input.ipAddress),
+        hasUserAgent: Boolean(input.userAgent),
+        auditUpdated: Boolean(latestAudit),
+      }),
+    )
+  }
+
+  async findLoginAudit(input: {
+    userId?: string
+    username?: string
+    email?: string
+    limit?: number
+    cursor?: string
+  }): Promise<UserLoginAuditQueryResult> {
+    const userId = await this.resolveLoginAuditUserId(input)
+    const requestedLimit = Number.isFinite(input.limit) ? input.limit : 25
+    const limit = Math.min(Math.max(requestedLimit ?? 25, 1), 100)
+    const response = await this.dynamoDbService.documentClient.send(
+      new QueryCommand({
+        TableName: this.userLoginAuditTableName,
+        KeyConditionExpression: '#userId = :userId',
+        ExpressionAttributeNames: {
+          '#userId': 'userId',
+        },
+        ExpressionAttributeValues: {
+          ':userId': userId,
+        },
+        ScanIndexForward: false,
+        Limit: limit,
+        ExclusiveStartKey: decodeCursor(input.cursor),
+      }),
+    )
+
+    return {
+      items: (response.Items ?? []) as UserLoginAudit[],
+      nextCursor: encodeCursor(response.LastEvaluatedKey as Record<string, unknown> | undefined),
+    }
+  }
+
   private async toManagedUser(user: UserType): Promise<ManagedUser> {
     const groupsResponse = await this.cognitoClient.send(
       new AdminListGroupsForUserCommand({
@@ -337,7 +453,9 @@ export class UsersService {
     }
 
     if (managedUser.sub) {
-      managedUser.permissions = await this.findUserPermissions(managedUser.sub)
+      const account = await this.findStoredAccount(managedUser.sub)
+      managedUser.permissions = normalizePermissions(account?.permissions)
+      managedUser.accountStatus = account?.status
       managedUser.welcomeEmailTracking = await this.emailTrackingService.getLatestSummary(
         'USER',
         managedUser.sub,
@@ -390,7 +508,7 @@ export class UsersService {
 
   private async putUserAccount(
     input: Pick<UserAccount, 'userId'> &
-      Partial<Pick<UserAccount, 'username' | 'email' | 'name' | 'permissions'>> & {
+      Partial<Pick<UserAccount, 'username' | 'email' | 'name' | 'permissions' | 'status'>> & {
         avatarKey?: string | null
       },
   ): Promise<UserAccount> {
@@ -423,6 +541,11 @@ export class UsersService {
             ? { avatarKey: existing.avatarKey }
             : {}),
       permissions: normalizePermissions(input.permissions ?? existing?.permissions),
+      status: input.status ?? existing?.status ?? 'ACTIVE',
+      ...(existing?.lastLoginAt ? { lastLoginAt: existing.lastLoginAt } : {}),
+      ...(existing?.lastLoginIp ? { lastLoginIp: existing.lastLoginIp } : {}),
+      ...(existing?.lastLoginUserAgent ? { lastLoginUserAgent: existing.lastLoginUserAgent } : {}),
+      ...(existing?.loginCount !== undefined ? { loginCount: existing.loginCount } : {}),
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     }
@@ -499,6 +622,68 @@ export class UsersService {
     return (response.Item as UserAccount | undefined) ?? null
   }
 
+  private async findLatestLoginAudit(userId: string): Promise<UserLoginAudit | undefined> {
+    const response = await this.dynamoDbService.documentClient.send(
+      new QueryCommand({
+        TableName: this.userLoginAuditTableName,
+        KeyConditionExpression: '#userId = :userId',
+        ExpressionAttributeNames: {
+          '#userId': 'userId',
+        },
+        ExpressionAttributeValues: {
+          ':userId': userId,
+        },
+        ScanIndexForward: false,
+        Limit: 1,
+      }),
+    )
+
+    return response.Items?.[0] as UserLoginAudit | undefined
+  }
+
+  private async resolveLoginAuditUserId(input: {
+    userId?: string
+    username?: string
+    email?: string
+  }): Promise<string> {
+    const filters = [input.userId, input.username, input.email].filter(Boolean)
+    if (filters.length !== 1) {
+      throw new BadRequestException('Provide exactly one of userId, username, or email.')
+    }
+
+    if (input.userId) {
+      return input.userId
+    }
+
+    if (input.username) {
+      const user = await this.findManagedUserByUsername(input.username)
+      if (!user.sub) {
+        throw new NotFoundException(`User ${input.username} does not have a sub attribute.`)
+      }
+      return user.sub
+    }
+
+    const email = normalizeEmail(input.email)
+    if (!email) {
+      throw new BadRequestException('email must be a valid non-empty value.')
+    }
+
+    const response = await this.cognitoClient.send(
+      new ListUsersCommand({
+        UserPoolId: this.userPoolId,
+        Filter: `email = "${escapeCognitoFilterValue(email)}"`,
+        Limit: 1,
+      }),
+    )
+    const user = response.Users?.[0]
+    const attributes = toAttributeMap(user?.Attributes ?? [])
+    if (!user || !attributes.sub) {
+      throw new NotFoundException(`User with email ${email} was not found.`)
+    }
+
+    return attributes.sub
+  }
+
   private async withAvatarReadUrl(profile: UserProfile): Promise<UserProfile> {
     if (!profile.avatarKey) {
       return profile
@@ -529,6 +714,30 @@ function toAttributeMap(attributes: AttributeType[]): Record<string, string> {
 function normalizeEmail(email: string | undefined): string | undefined {
   const normalizedEmail = email?.trim().toLowerCase()
   return normalizedEmail || undefined
+}
+
+function encodeCursor(value: Record<string, unknown> | undefined): string | null {
+  if (!value) {
+    return null
+  }
+
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+}
+
+function decodeCursor(value: string | undefined): Record<string, unknown> | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Record<string, unknown>
+  } catch {
+    throw new BadRequestException('cursor is invalid.')
+  }
+}
+
+function escapeCognitoFilterValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 function toUserProfile(user: AuthenticatedUser, storedProfile: UserAccount | null): UserProfile {

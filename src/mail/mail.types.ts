@@ -39,6 +39,18 @@ export interface SendWelcomeNewCustomerEmailInput {
   resendOfByRecipient?: Record<string, string>
 }
 
+export interface SendCognitoAuthEmailInput {
+  emailType: CognitoAuthEmailType
+  user: {
+    sub?: string
+    username: string
+    email?: string
+    name?: string
+  }
+  code?: string
+  recipientEmails?: string[]
+}
+
 export type EmailSendStatus = 'SENT' | 'SKIPPED' | 'FAILED'
 export type EmailIdempotencyMode = 'claim-once'
 
@@ -57,6 +69,17 @@ export type EmailType =
   | 'WELCOME_NEW_CUSTOMER'
   | 'SHIPPED_ORDER_NOTIFICATION'
   | 'CANCELLED_ORDER_NOTIFICATION'
+  | CognitoAuthEmailType
+
+export type CognitoAuthEmailType =
+  | 'COGNITO_SIGN_UP'
+  | 'COGNITO_RESEND_CODE'
+  | 'COGNITO_FORGOT_PASSWORD'
+  | 'COGNITO_ADMIN_CREATE_USER'
+  | 'COGNITO_UPDATE_USER_ATTRIBUTE'
+  | 'COGNITO_VERIFY_USER_ATTRIBUTE'
+  | 'COGNITO_AUTHENTICATION'
+  | 'COGNITO_ACCOUNT_TAKEOVER_NOTIFICATION'
 
 export type EmailContextType = 'ORDER' | 'USER'
 
