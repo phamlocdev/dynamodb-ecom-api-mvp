@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { ListTablesCommand } from '@aws-sdk/client-dynamodb'
+import { DescribeTableCommand } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb'
 import {
   createDynamoDbClient,
@@ -13,6 +13,7 @@ export class DynamoDbService {
   readonly documentClient: DynamoDBDocumentClient
 
   private readonly client
+  private readonly healthCheckTableName?: string
 
   constructor(@Inject(ConfigService) configService: ConfigService) {
     const settings = getDynamoDbSettings({
@@ -21,9 +22,14 @@ export class DynamoDbService {
     })
     this.client = createDynamoDbClient(settings)
     this.documentClient = createDynamoDbDocumentClient(settings)
+    this.healthCheckTableName = configService.get<string>('PRODUCTS_TABLE')
   }
 
   async checkConnection(): Promise<void> {
-    await this.client.send(new ListTablesCommand({ Limit: 1 }))
+    if (!this.healthCheckTableName) {
+      throw new Error('PRODUCTS_TABLE is required for DynamoDB health check.')
+    }
+
+    await this.client.send(new DescribeTableCommand({ TableName: this.healthCheckTableName }))
   }
 }

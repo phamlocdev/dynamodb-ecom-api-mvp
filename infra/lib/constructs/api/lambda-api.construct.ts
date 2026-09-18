@@ -69,6 +69,7 @@ export class LambdaApiConstruct extends Construct {
         UPLOAD_MAX_FILE_SIZE_BYTES: String(infraEnv.uploadMaxFileSizeBytes),
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
+        CLIENT_CORS_ORIGINS: infraEnv.clientOrigins.join(','),
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         ORDER_EVENTS_BUS_NAME: props.orderEventsBus.eventBusName,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
