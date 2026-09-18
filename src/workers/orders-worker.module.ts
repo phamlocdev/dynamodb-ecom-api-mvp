@@ -5,7 +5,6 @@ import { DynamoDbModule } from '../dynamodb/dynamodb.module'
 import { InventoryModule } from '../inventory/inventory.module'
 import { OrdersModule } from '../orders/orders.module'
 import { ProductsModule } from '../products/products.module'
-import { validateRuntimeEnv } from '../config/env.validation'
 import { UsersModule } from '../users/users.module'
 import { OrdersWorkerService } from './orders-worker.service'
 
@@ -14,7 +13,6 @@ import { OrdersWorkerService } from './orders-worker.service'
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: process.env.RUNTIME_ENV_FILE ?? '.env.dev',
-      validate: validateRuntimeEnv,
     }),
     DynamoDbModule,
     UsersModule,

@@ -5,7 +5,7 @@ import { AwsInfraEnv, validateAwsInfraEnv } from '../../../src/config/env.valida
 dotenv.config({
   path: process.env.INFRA_ENV_FILE
     ? path.resolve(process.env.INFRA_ENV_FILE)
-    : path.resolve(__dirname, '..', '..', '..', '.env'),
+    : path.resolve(__dirname, '..', '..', '..', '.env.dev'),
   override: true,
   quiet: true,
 })

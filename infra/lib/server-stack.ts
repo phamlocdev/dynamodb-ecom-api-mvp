@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib'
 import * as events from 'aws-cdk-lib/aws-events'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from './config/env'
 import { HttpApiConstruct } from './constructs/api/http-api.construct'
@@ -18,6 +19,11 @@ export class ServerStack extends cdk.Stack {
     super(scope, id, props)
 
     const env = getAwsInfraEnv()
+    const vnpaySecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'VnpaySecret',
+      env.vnpaySecretName,
+    )
 
     const data = new DynamoDbConstruct(this, 'Data')
     const messaging = new SqsConstruct(this, 'Messaging', {
@@ -32,7 +38,7 @@ export class ServerStack extends cdk.Stack {
       logoutUrls: env.logoutUrls,
       hostedUiDomainPrefix: env.hostedUiDomainPrefix,
       googleClientId: env.googleClientId,
-      googleClientSecret: env.googleClientSecret,
+      googleClientSecret: cdk.SecretValue.secretsManager(env.googleClientSecretName),
       emailTrackingTable: data.emailTrackingTable,
       userAccountsTable: data.userAccountsTable,
       userLoginAuditTable: data.userLoginAuditTable,
@@ -69,6 +75,7 @@ export class ServerStack extends cdk.Stack {
       orderEventsBus,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
+      vnpaySecret,
     })
     notification.grantSendEmail(apiLambda.apiHandler)
 
@@ -91,6 +98,7 @@ export class ServerStack extends cdk.Stack {
       placeOrderQueue: messaging.placeOrderQueue,
       userPoolId: auth.userPool.userPoolId,
       userPoolClientId: auth.userPoolClient.userPoolClientId,
+      vnpaySecret,
     })
 
     const api = new HttpApiConstruct(this, 'Api', {

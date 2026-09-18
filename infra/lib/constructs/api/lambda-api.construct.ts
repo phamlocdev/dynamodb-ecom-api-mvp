@@ -5,6 +5,7 @@ import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from '../../config/env'
@@ -31,6 +32,7 @@ export interface LambdaApiConstructProps {
   orderEventsBus: events.IEventBus
   userPoolId: string
   userPoolClientId: string
+  vnpaySecret: secretsmanager.ISecret
 }
 
 export class LambdaApiConstruct extends Construct {
@@ -72,8 +74,7 @@ export class LambdaApiConstruct extends Construct {
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         ORDER_EVENTS_BUS_NAME: props.orderEventsBus.eventBusName,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
-        VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
-        VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
+        VNPAY_SECRET_NAME: props.vnpaySecret.secretName,
         VNPAY_PAYMENT_URL: infraEnv.vnpayPaymentUrl,
         VNPAY_RETURN_URL: infraEnv.vnpayReturnUrl,
         VNPAY_IPN_URL: infraEnv.vnpayIpnUrl,
@@ -88,6 +89,7 @@ export class LambdaApiConstruct extends Construct {
     })
 
     props.productsTable.grantReadWriteData(this.apiHandler)
+    props.vnpaySecret.grantRead(this.apiHandler)
     props.categoriesTable.grantReadWriteData(this.apiHandler)
     props.cartsTable.grantReadWriteData(this.apiHandler)
     props.cartItemsTable.grantReadWriteData(this.apiHandler)

@@ -21,7 +21,7 @@ export interface CognitoConstructProps {
   logoutUrls: string[]
   hostedUiDomainPrefix: string
   googleClientId?: string
-  googleClientSecret?: string
+  googleClientSecret?: cdk.SecretValue
   emailTrackingTable: dynamodb.ITable
   userAccountsTable: dynamodb.ITable
   userLoginAuditTable: dynamodb.ITable
@@ -228,7 +228,7 @@ export class CognitoConstruct extends Construct {
         ? new cognito.UserPoolIdentityProviderGoogle(this, 'GoogleProvider', {
             userPool: this.userPool,
             clientId: props.googleClientId,
-            clientSecretValue: cdk.SecretValue.unsafePlainText(props.googleClientSecret),
+            clientSecretValue: props.googleClientSecret,
             scopes: ['openid', 'email', 'profile'],
             attributeMapping: {
               email: cognito.ProviderAttribute.GOOGLE_EMAIL,
