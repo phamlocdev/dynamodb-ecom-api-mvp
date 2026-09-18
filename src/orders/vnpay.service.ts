@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { SecretsService } from '../secrets/secrets.service'
 import {
   type IpnResponse,
   type QueryDrResponse,
@@ -39,6 +40,11 @@ export interface RefundOrderPaymentInput extends QueryOrderPaymentInput {
   refundReason: string
 }
 
+interface VnpaySecret {
+  tmnCode: string
+  secureSecret: string
+}
+
 @Injectable()
 export class VnpayService {
   private readonly logger = new Logger(VnpayService.name)
@@ -48,17 +54,19 @@ export class VnpayService {
   private readonly apiIpAddress: string
   private readonly paymentEndpoint: string
   private readonly gatewayHost: string
-  private readonly tmnCode: string
-  private readonly secureSecret: string
+  private readonly vnpaySecretName: string
   private gatewayClientPromise?: Promise<VNPay>
 
-  constructor(@Inject(ConfigService) configService: ConfigService) {
+  constructor(
+    @Inject(ConfigService) configService: ConfigService,
+    @Inject(SecretsService)
+    private readonly secretsService: SecretsService,
+  ) {
     const paymentUrl = new URL(configService.getOrThrow<string>('VNPAY_PAYMENT_URL'))
     this.paymentEndpoint = paymentUrl.pathname.replace(/^\/+/, '')
     this.gatewayHost = paymentUrl.origin
 
-    this.tmnCode = configService.getOrThrow<string>('VNPAY_TMN_CODE')
-    this.secureSecret = configService.getOrThrow<string>('VNPAY_SECURE_SECRET')
+    this.vnpaySecretName = configService.getOrThrow<string>('VNPAY_SECRET_NAME')
     this.frontendPaymentReturnUrl = resolveFrontendPaymentReturnUrl(
       configService.getOrThrow<string>('CLIENT_CORS_ORIGINS'),
     )
@@ -157,9 +165,11 @@ export class VnpayService {
   }
 
   private async createGatewayClient(): Promise<VNPay> {
+    const vnpaySecret = await this.getVnpaySecret()
+
     return new VNPay({
-      tmnCode: this.tmnCode,
-      secureSecret: this.secureSecret,
+      tmnCode: vnpaySecret.tmnCode,
+      secureSecret: vnpaySecret.secureSecret,
       vnpayHost: this.gatewayHost,
       queryDrAndRefundHost: this.gatewayHost,
       paymentEndpoint: this.paymentEndpoint,
@@ -167,6 +177,26 @@ export class VnpayService {
       vnp_Locale: this.locale,
       vnp_OrderType: this.orderType,
     })
+  }
+
+  private async getVnpaySecret(): Promise<VnpaySecret> {
+    const secretString = await this.secretsService.getSecretString(this.vnpaySecretName)
+    let parsedSecret: unknown
+
+    try {
+      parsedSecret = JSON.parse(secretString)
+    } catch (error) {
+      this.logger.error(`VNPay secret ${this.vnpaySecretName} is not valid JSON.`)
+      throw error
+    }
+
+    if (!isVnpaySecret(parsedSecret)) {
+      throw new Error(
+        `VNPay secret ${this.vnpaySecretName} must contain non-empty tmnCode and secureSecret fields.`,
+      )
+    }
+
+    return parsedSecret
   }
 }
 
@@ -192,4 +222,17 @@ function resolveFrontendPaymentReturnUrl(clientCorsOrigins: string): string {
       .find(Boolean) ?? 'http://localhost:3000'
 
   return new URL('/orders/payment-return', origin).toString()
+}
+
+function isVnpaySecret(value: unknown): value is VnpaySecret {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'tmnCode' in value &&
+    'secureSecret' in value &&
+    typeof value.tmnCode === 'string' &&
+    value.tmnCode.length > 0 &&
+    typeof value.secureSecret === 'string' &&
+    value.secureSecret.length > 0
+  )
 }

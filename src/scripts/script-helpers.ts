@@ -5,17 +5,30 @@ import * as dotenv from 'dotenv'
 import { createHash } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { validateRuntimeEnv, type RuntimeEnv } from '../config/env.validation'
 
 const serverRoot = path.resolve(__dirname, '..', '..')
 const defaultEnvFilePath = path.join(serverRoot, '.env.dev')
 
 let cachedContext: ScriptContext | null = null
 
+export type ScriptRuntimeEnv = NodeJS.ProcessEnv & {
+  AWS_REGION: string
+  AWS_DEFAULT_REGION: string
+  CATEGORIES_TABLE: string
+  COGNITO_CLIENT_ID?: string
+  COGNITO_USER_POOL_ID?: string
+  EMAIL_TRACKING_TABLE: string
+  EVENT_CONSUMER_IDEMPOTENCY_TABLE: string
+  INVENTORY_TABLE: string
+  ORDER_EVENTS_BUS_NAME: string
+  PRODUCTS_TABLE: string
+  USER_ACCOUNTS_TABLE: string
+}
+
 export type ScriptContext = {
   serverRoot: string
   envFilePath: string
-  runtimeEnv: RuntimeEnv
+  runtimeEnv: ScriptRuntimeEnv
   documentClient: DynamoDBDocumentClient
   cognitoClient: CognitoIdentityProviderClient
 }
@@ -48,7 +61,7 @@ export function getScriptContext(): ScriptContext {
 
   dotenv.config({ path: envFilePath, override: false, quiet: true })
 
-  const runtimeEnv = validateRuntimeEnv(process.env as Record<string, unknown>)
+  const runtimeEnv = process.env as ScriptRuntimeEnv
   const region = runtimeEnv.AWS_REGION ?? runtimeEnv.AWS_DEFAULT_REGION
 
   const dynamoDbClient = new DynamoDBClient({ region })

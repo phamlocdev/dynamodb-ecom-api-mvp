@@ -5,6 +5,7 @@ import * as eventTargets from 'aws-cdk-lib/aws-events-targets'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager'
 import * as sqs from 'aws-cdk-lib/aws-sqs'
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import { Construct } from 'constructs'
@@ -25,6 +26,7 @@ export interface OrdersWorkersConstructProps {
   placeOrderQueue: sqs.IQueue
   userPoolId: string
   userPoolClientId: string
+  vnpaySecret: secretsmanager.ISecret
 }
 
 export class OrdersWorkersConstruct extends Construct {
@@ -44,8 +46,7 @@ export class OrdersWorkersConstruct extends Construct {
       INVENTORY_TABLE: props.inventoryTable.tableName,
       COGNITO_USER_POOL_ID: props.userPoolId,
       COGNITO_CLIENT_ID: props.userPoolClientId,
-      VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
-      VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
+      VNPAY_SECRET_NAME: props.vnpaySecret.secretName,
       PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
       VNPAY_PAYMENT_URL: infraEnv.vnpayPaymentUrl,
       VNPAY_RETURN_URL: infraEnv.vnpayReturnUrl,
@@ -107,6 +108,7 @@ export class OrdersWorkersConstruct extends Construct {
     tables.forEach((table) => {
       workerFunctions.forEach((worker) => table.grantReadWriteData(worker))
     })
+    workerFunctions.forEach((worker) => props.vnpaySecret.grantRead(worker))
 
     workerFunctions.forEach((worker) => {
       worker.addToRolePolicy(
