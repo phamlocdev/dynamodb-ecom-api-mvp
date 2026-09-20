@@ -60,6 +60,8 @@ export class VnpayService {
     this.tmnCode = configService.getOrThrow<string>('VNPAY_TMN_CODE')
     this.secureSecret = configService.getOrThrow<string>('VNPAY_SECURE_SECRET')
     this.frontendPaymentReturnUrl = resolveFrontendPaymentReturnUrl(
+      configService.get<string>('FRONT_END_PAYMENT_RETURN_URL'),
+      configService.get<'development' | 'production'>('NODE_ENV') ?? 'development',
       configService.getOrThrow<string>('CLIENT_CORS_ORIGINS'),
     )
     this.locale = toVnpLocale(configService.getOrThrow<'vn' | 'en'>('VNPAY_LOCALE'))
@@ -184,7 +186,19 @@ function buildGatewayRequestId(): string {
     .padStart(6, '0')}`
 }
 
-function resolveFrontendPaymentReturnUrl(clientCorsOrigins: string): string {
+function resolveFrontendPaymentReturnUrl(
+  configuredPaymentReturnUrl: string | undefined,
+  nodeEnv: 'development' | 'production',
+  clientCorsOrigins: string,
+): string {
+  if (configuredPaymentReturnUrl) {
+    return configuredPaymentReturnUrl
+  }
+
+  if (nodeEnv === 'development') {
+    return 'http://localhost:3000/orders/payment-return'
+  }
+
   const origin =
     clientCorsOrigins
       .split(',')

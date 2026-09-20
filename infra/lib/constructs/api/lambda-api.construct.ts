@@ -70,6 +70,7 @@ export class LambdaApiConstruct extends Construct {
         COGNITO_USER_POOL_ID: props.userPoolId,
         COGNITO_CLIENT_ID: props.userPoolClientId,
         CLIENT_CORS_ORIGINS: infraEnv.clientOrigins.join(','),
+        FRONT_END_PAYMENT_RETURN_URL: infraEnv.frontendPaymentReturnUrl,
         PLACE_ORDER_QUEUE_URL: props.placeOrderQueue.queueUrl,
         ORDER_EVENTS_BUS_NAME: props.orderEventsBus.eventBusName,
         PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),
