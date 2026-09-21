@@ -43,6 +43,7 @@ export interface RefundOrderPaymentInput extends QueryOrderPaymentInput {
 export class VnpayService {
   private readonly logger = new Logger(VnpayService.name)
   private readonly frontendPaymentReturnUrl: string
+  private readonly vnpayReturnUrl: string
   private readonly locale: VnpLocale
   private readonly orderType: ProductCode
   private readonly apiIpAddress: string
@@ -59,7 +60,10 @@ export class VnpayService {
 
     this.tmnCode = configService.getOrThrow<string>('VNPAY_TMN_CODE')
     this.secureSecret = configService.getOrThrow<string>('VNPAY_SECURE_SECRET')
+    this.vnpayReturnUrl = configService.getOrThrow<string>('VNPAY_RETURN_URL')
     this.frontendPaymentReturnUrl = resolveFrontendPaymentReturnUrl(
+      configService.get<string>('FRONT_END_PAYMENT_RETURN_URL'),
+      configService.get<'development' | 'production'>('NODE_ENV') ?? 'development',
       configService.getOrThrow<string>('CLIENT_CORS_ORIGINS'),
     )
     this.locale = toVnpLocale(configService.getOrThrow<'vn' | 'en'>('VNPAY_LOCALE'))
@@ -78,7 +82,7 @@ export class VnpayService {
       vnp_Locale: this.locale,
       vnp_OrderInfo: input.orderInfo,
       vnp_OrderType: this.orderType,
-      vnp_ReturnUrl: this.frontendPaymentReturnUrl,
+      vnp_ReturnUrl: this.vnpayReturnUrl,
       vnp_TxnRef: input.orderId,
     })
   }
@@ -184,7 +188,19 @@ function buildGatewayRequestId(): string {
     .padStart(6, '0')}`
 }
 
-function resolveFrontendPaymentReturnUrl(clientCorsOrigins: string): string {
+function resolveFrontendPaymentReturnUrl(
+  configuredPaymentReturnUrl: string | undefined,
+  nodeEnv: 'development' | 'production',
+  clientCorsOrigins: string,
+): string {
+  if (configuredPaymentReturnUrl) {
+    return configuredPaymentReturnUrl
+  }
+
+  if (nodeEnv === 'development') {
+    return 'http://localhost:3000/orders/payment-return'
+  }
+
   const origin =
     clientCorsOrigins
       .split(',')

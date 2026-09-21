@@ -18,7 +18,6 @@ export function registerApiRoutes(
     path: '/products',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,
-    ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
     path: '/products',
@@ -49,7 +48,6 @@ export function registerApiRoutes(
     path: '/categories',
     methods: [apigatewayv2.HttpMethod.GET],
     integration,
-    ...routeAuthOptions(authorizer),
   })
   api.addRoutes({
     path: '/categories',

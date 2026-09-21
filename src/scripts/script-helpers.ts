@@ -27,6 +27,9 @@ export type StackOutputs = {
   CognitoUserPoolId?: string
   HostedUiDomain?: string
   MediaBucketName?: string
+  MediaDistributionDomainName?: string
+  MediaDistributionId?: string
+  MediaPublicBaseUrl?: string
   EmailTrackingTableName?: string
   EventConsumerIdempotencyTableName?: string
   OrderEventsBusName?: string

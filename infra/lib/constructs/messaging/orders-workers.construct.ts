@@ -45,6 +45,7 @@ export class OrdersWorkersConstruct extends Construct {
       COGNITO_USER_POOL_ID: props.userPoolId,
       COGNITO_CLIENT_ID: props.userPoolClientId,
       CLIENT_CORS_ORIGINS: infraEnv.clientOrigins.join(','),
+      FRONT_END_PAYMENT_RETURN_URL: infraEnv.frontendPaymentReturnUrl,
       VNPAY_TMN_CODE: infraEnv.vnpayTmnCode,
       VNPAY_SECURE_SECRET: infraEnv.vnpaySecureSecret,
       PAYMENT_CONFIRMATION_SECONDS_TIMEOUT: String(infraEnv.paymentConfirmationTimeoutSeconds),

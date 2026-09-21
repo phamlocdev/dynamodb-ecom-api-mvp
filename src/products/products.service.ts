@@ -10,8 +10,8 @@ import { ConfigService } from '@nestjs/config'
 import {
   DeleteCommand,
   GetCommand,
-  PutCommand,
   ScanCommand,
+  TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb'
 import { randomUUID } from 'crypto'
@@ -24,21 +24,26 @@ import { Product, ProductImage } from './product.types'
 import { CursorScope, PaginatedResponse } from '../pagination/pagination.types'
 import { resolvePaginationState, toPaginatedResponse } from '../pagination/pagination.util'
 import { UploadService } from '../upload/upload.service'
+import { ProductEventsPublisher } from './product-events.publisher'
 
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name)
   private readonly tableName: string
+  private readonly inventoryTableName: string
 
   constructor(
     @Inject(DynamoDbService)
     private readonly dynamoDbService: DynamoDbService,
     @Inject(UploadService)
     private readonly uploadService: UploadService,
+    @Inject(ProductEventsPublisher)
+    private readonly productEventsPublisher: ProductEventsPublisher,
     @Inject(ConfigService)
     configService: ConfigService,
   ) {
     this.tableName = configService.get<string>('PRODUCTS_TABLE') ?? 'products'
+    this.inventoryTableName = configService.get<string>('INVENTORY_TABLE') ?? 'inventory'
   }
 
   async create(dto: CreateProductDto): Promise<Product> {
@@ -57,16 +62,37 @@ export class ProductsService {
       createdAt: timestamp,
       updatedAt: timestamp,
     }
+    const inventory = {
+      productId: product.productId,
+      availableQuantity: dto.availableQuantity ?? 0,
+      reservedQuantity: 0,
+      updatedAt: timestamp,
+    }
 
     try {
       await this.dynamoDbService.documentClient.send(
-        new PutCommand({
-          TableName: this.tableName,
-          Item: product,
-          ConditionExpression: 'attribute_not_exists(#productId)',
-          ExpressionAttributeNames: { '#productId': 'productId' },
+        new TransactWriteCommand({
+          TransactItems: [
+            {
+              Put: {
+                TableName: this.tableName,
+                Item: product,
+                ConditionExpression: 'attribute_not_exists(#productId)',
+                ExpressionAttributeNames: { '#productId': 'productId' },
+              },
+            },
+            {
+              Put: {
+                TableName: this.inventoryTableName,
+                Item: inventory,
+                ConditionExpression: 'attribute_not_exists(#inventoryProductId)',
+                ExpressionAttributeNames: { '#inventoryProductId': 'productId' },
+              },
+            },
+          ],
         }),
       )
+      await this.publishProductMutationBestEffort('created', product.productId)
       return product
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
@@ -205,6 +231,7 @@ export class ProductsService {
         await this.deleteRemovedProductImages(existingProduct.images, updatedProduct.images)
       }
 
+      await this.publishProductMutationBestEffort('updated', updatedProduct.productId)
       return updatedProduct
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
@@ -227,11 +254,33 @@ export class ProductsService {
         }),
       )
       await this.uploadService.deleteObjectsBestEffort(getProductImageKeys(existingProduct.images))
+      await this.publishProductMutationBestEffort('deleted', productId)
     } catch (error) {
       if (isConditionalCheckFailure(error)) {
         throw new NotFoundException(`Product ${productId} was not found.`)
       }
       throw error
+    }
+  }
+
+  private async publishProductMutationBestEffort(
+    mutation: 'created' | 'updated' | 'deleted',
+    productId: string,
+  ): Promise<void> {
+    try {
+      if (mutation === 'created') {
+        await this.productEventsPublisher.publishProductCreated({ productId })
+        return
+      }
+
+      if (mutation === 'updated') {
+        await this.productEventsPublisher.publishProductUpdated({ productId })
+        return
+      }
+
+      await this.productEventsPublisher.publishProductDeleted({ productId })
+    } catch (error) {
+      this.logger.error(`Failed to publish product ${mutation} event for ${productId}.`, error)
     }
   }
 
@@ -477,6 +526,7 @@ function isConditionalCheckFailure(error: unknown): boolean {
     typeof error === 'object' &&
     error !== null &&
     'name' in error &&
-    error.name === 'ConditionalCheckFailedException'
+    (error.name === 'ConditionalCheckFailedException' ||
+      error.name === 'TransactionCanceledException')
   )
 }

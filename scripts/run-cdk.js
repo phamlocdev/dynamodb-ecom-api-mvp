@@ -9,7 +9,7 @@ const cdkOutPath = path.join(serverRoot, 'cdk.out')
 
 dotenv.config({ path: envFilePath, override: false, quiet: true })
 
-const [, , subcommand, ...restArgs] = process.argv
+const [, , subcommand, ...rawRestArgs] = process.argv
 
 if (!subcommand) {
   console.error('Missing CDK subcommand.')
@@ -18,8 +18,24 @@ if (!subcommand) {
 
 const account = process.env.CDK_DEFAULT_ACCOUNT
 const region = process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION
+const stackNames = []
+let optionArgsStart = 0
+
+while (optionArgsStart < rawRestArgs.length) {
+  const current = rawRestArgs[optionArgsStart]
+  if (!current || current.startsWith('-') || current.startsWith('aws://')) {
+    break
+  }
+
+  stackNames.push(current)
+  optionArgsStart += 1
+}
+
+const restArgs = rawRestArgs.slice(optionArgsStart)
+const requestedStacks = subcommand === 'bootstrap' ? [] : stackNames.length > 0 ? stackNames : ['ServerDevStack']
 const explicitBootstrapTarget = restArgs.find((arg) => arg.startsWith('aws://'))
 const resolvedBootstrapTarget = explicitBootstrapTarget ?? (account && region ? `aws://${account}/${region}` : null)
+const edgeBootstrapTarget = account ? `aws://${account}/us-east-1` : null
 
 if (subcommand === 'bootstrap') {
   if (!resolvedBootstrapTarget) {
@@ -43,16 +59,26 @@ if (fs.existsSync(cdkOutPath)) {
 
 if (subcommand === 'bootstrap') {
   args.push(resolvedBootstrapTarget)
+  if (!explicitBootstrapTarget && edgeBootstrapTarget && edgeBootstrapTarget !== resolvedBootstrapTarget) {
+    args.push(edgeBootstrapTarget)
+  }
 } else {
-  args.push('ServerDevStack')
+  args.push(...requestedStacks)
 }
 
-args.push('--app', appCommand, ...restArgs)
+if (subcommand === 'bootstrap') {
+  args.push(...restArgs.filter((arg) => !arg.startsWith('aws://')))
+} else {
+  args.push('--app', appCommand, ...restArgs)
+}
 
 const result = spawnSync(process.execPath, args, {
   cwd: serverRoot,
   stdio: 'inherit',
-  env: process.env,
+  env: {
+    ...process.env,
+    CDK_STACKS: requestedStacks.join(','),
+  },
 })
 
 if (result.error) {

@@ -161,6 +161,7 @@ export class OrdersService {
     }
 
     const reservedItems: ReservedInventoryItem[] = []
+    let reservationSucceeded = false
 
     try {
       const productSnapshots: Array<{ item: (typeof cartItems)[number]; product: Product }> = []
@@ -196,6 +197,7 @@ export class OrdersService {
 
       const totalAmount = orderItems.reduce((total, item) => total + item.lineTotal, 0)
       await this.markReserved(order.orderId, totalAmount)
+      reservationSucceeded = true
       this.logger.log(
         `>>>>>> [SUCCESS]: Order ${order.orderId} reserved successfully with ${orderItems.length} items and totalAmount=${totalAmount}.`,
       )
@@ -223,6 +225,10 @@ export class OrdersService {
       if (!(error instanceof ConflictException)) {
         throw error
       }
+    }
+
+    if (reservationSucceeded) {
+      await this.cartsService.markExpired(cart)
     }
 
     return this.getById(order.orderId)

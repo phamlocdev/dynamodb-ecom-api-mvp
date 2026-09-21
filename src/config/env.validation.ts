@@ -72,6 +72,7 @@ const csvEmailArrayFromEnv = z.preprocess((value) => {
 }, z.array(z.string().email()))
 
 const runtimeEnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production']).default('development'),
   PORT: positiveIntegerFromEnv.default(8000),
   AWS_REGION: trimmedString.default('ap-southeast-1'),
   AWS_DEFAULT_REGION: trimmedString.default('ap-southeast-1'),
@@ -99,8 +100,10 @@ const runtimeEnvSchema = z.object({
   CLIENT_COGNITO_CALLBACK_URLS: trimmedString.default('http://localhost:3000/auth/callback'),
   CLIENT_COGNITO_LOGOUT_URLS: trimmedString.default('http://localhost:3000/auth/login'),
   CLIENT_CORS_ORIGINS: trimmedString.default('http://localhost:3000'),
+  FRONT_END_PAYMENT_RETURN_URL: urlString.default('http://localhost:3000/orders/payment-return'),
   COGNITO_DOMAIN_PREFIX: trimmedString.default('ecommerce-dev'),
   MEDIA_BUCKET_NAME: trimmedString.default('ecommerce-media-dev'),
+  MEDIA_PUBLIC_BASE_URL: optionalTrimmedString,
   PRODUCT_IMAGE_MAX_COUNT: positiveIntegerFromEnv.default(10),
   MEDIA_READ_URL_TTL_SECONDS: positiveIntegerFromEnv.default(900),
   UPLOAD_MAX_FILE_SIZE_BYTES: positiveIntegerFromEnv.default(5242880),
@@ -144,6 +147,7 @@ const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
     ]),
     hostedUiDomainPrefix: environment.COGNITO_DOMAIN_PREFIX,
     clientOrigins: splitCsv(environment.CLIENT_CORS_ORIGINS, ['http://localhost:3000']),
+    frontendPaymentReturnUrl: environment.FRONT_END_PAYMENT_RETURN_URL,
     googleClientId: environment.GOOGLE_CLIENT_ID,
     googleClientSecret: environment.GOOGLE_CLIENT_SECRET,
     productsTableName: environment.PRODUCTS_TABLE,
@@ -163,6 +167,7 @@ const awsInfraEnvSchema = runtimeEnvSchema.transform((environment) => {
     orderEventsBusName: environment.ORDER_EVENTS_BUS_NAME,
     ordersEntityType: environment.ORDERS_ENTITY_TYPE,
     mediaBucketName: environment.MEDIA_BUCKET_NAME,
+    mediaPublicBaseUrl: environment.MEDIA_PUBLIC_BASE_URL,
     productImageMaxCount: environment.PRODUCT_IMAGE_MAX_COUNT,
     mediaReadUrlTtlSeconds: environment.MEDIA_READ_URL_TTL_SECONDS,
     uploadMaxFileSizeBytes: environment.UPLOAD_MAX_FILE_SIZE_BYTES,

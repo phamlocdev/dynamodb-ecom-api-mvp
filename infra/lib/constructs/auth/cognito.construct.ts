@@ -2,7 +2,8 @@ import * as cdk from 'aws-cdk-lib'
 import * as cognito from 'aws-cdk-lib/aws-cognito'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as iam from 'aws-cdk-lib/aws-iam'
-import * as kms from 'aws-cdk-lib/aws-kms'
+// Uncomment when re-enabling CUSTOM_EMAIL_SENDER.
+// import * as kms from 'aws-cdk-lib/aws-kms'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import { Construct } from 'constructs'
@@ -36,29 +37,40 @@ export class CognitoConstruct extends Construct {
   readonly preSignUpHandler: nodejs.NodejsFunction
   readonly preAuthenticationHandler: nodejs.NodejsFunction
   readonly postAuthenticationHandler: nodejs.NodejsFunction
-  readonly customEmailSenderHandler: nodejs.NodejsFunction
+  // Uncomment when re-enabling CUSTOM_EMAIL_SENDER.
+  // readonly customEmailSenderHandler: nodejs.NodejsFunction
 
   constructor(scope: Construct, id: string, props: CognitoConstructProps) {
     super(scope, id)
     const infraEnv = getAwsInfraEnv()
-    const customSenderKmsKey = new kms.Key(this, 'CustomSenderKmsKey', {
-      alias: `alias/${infraEnv.hostedUiDomainPrefix}-custom-email-sender`,
-      enableKeyRotation: true,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    })
-    customSenderKmsKey.addToResourcePolicy(
-      new iam.PolicyStatement({
-        principals: [new iam.ServicePrincipal('cognito-idp.amazonaws.com')],
-        actions: ['kms:Encrypt', 'kms:GenerateDataKey'],
-        resources: ['*'],
-      }),
-    )
+    if (!infraEnv.sesFromEmail) {
+      throw new Error('SES_FROM_EMAIL is required for Cognito default emails sent through SES.')
+    }
+
+    // Uncomment when re-enabling CUSTOM_EMAIL_SENDER.
+    // const customSenderKmsKey = new kms.Key(this, 'CustomSenderKmsKey', {
+    //   alias: `alias/${infraEnv.hostedUiDomainPrefix}-custom-email-sender`,
+    //   enableKeyRotation: true,
+    //   removalPolicy: cdk.RemovalPolicy.RETAIN,
+    // })
+    // customSenderKmsKey.addToResourcePolicy(
+    //   new iam.PolicyStatement({
+    //     principals: [new iam.ServicePrincipal('cognito-idp.amazonaws.com')],
+    //     actions: ['kms:Encrypt', 'kms:GenerateDataKey'],
+    //     resources: ['*'],
+    //   }),
+    // )
 
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       selfSignUpEnabled: true,
       signInAliases: { email: true, username: true },
       autoVerify: { email: true },
-      customSenderKmsKey,
+      email: cognito.UserPoolEmail.withSES({
+        fromEmail: infraEnv.sesFromEmail,
+        configurationSetName: infraEnv.sesConfigurationSetName,
+      }),
+      // Uncomment when re-enabling CUSTOM_EMAIL_SENDER.
+      // customSenderKmsKey,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       passwordPolicy: {
@@ -174,34 +186,35 @@ export class CognitoConstruct extends Construct {
       this.postAuthenticationHandler,
     )
 
-    this.customEmailSenderHandler = new nodejs.NodejsFunction(this, 'CustomEmailSenderHandler', {
-      runtime: lambda.Runtime.NODEJS_24_X,
-      entry: sourceEntryPath('cognito', 'custom-email-sender.ts'),
-      handler: 'handler',
-      timeout: cdk.Duration.seconds(15),
-      memorySize: 256,
-      bundling: createNodejsBundling({
-        afterBundling: (inputDir, outputDir) => [
-          ...removeGeneratedSourceArtifacts(),
-          ...copyDirectoryIntoBundle(inputDir, outputDir, 'src/mail/templates', 'templates'),
-        ],
-      }),
-      environment: {
-        EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
-        KEY_ID: customSenderKmsKey.keyId,
-        KEY_ARN: customSenderKmsKey.keyArn,
-        SES_ENABLED: String(infraEnv.sesEnabled),
-        SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
-        SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
-        SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
-      },
-    })
-    props.emailTrackingTable.grantReadWriteData(this.customEmailSenderHandler)
-    customSenderKmsKey.grantDecrypt(this.customEmailSenderHandler)
-    this.userPool.addTrigger(
-      cognito.UserPoolOperation.CUSTOM_EMAIL_SENDER,
-      this.customEmailSenderHandler,
-    )
+    // Uncomment this block when re-enabling CUSTOM_EMAIL_SENDER.
+    // this.customEmailSenderHandler = new nodejs.NodejsFunction(this, 'CustomEmailSenderHandler', {
+    //   runtime: lambda.Runtime.NODEJS_24_X,
+    //   entry: sourceEntryPath('cognito', 'custom-email-sender.ts'),
+    //   handler: 'handler',
+    //   timeout: cdk.Duration.seconds(15),
+    //   memorySize: 256,
+    //   bundling: createNodejsBundling({
+    //     afterBundling: (inputDir, outputDir) => [
+    //       ...removeGeneratedSourceArtifacts(),
+    //       ...copyDirectoryIntoBundle(inputDir, outputDir, 'src/mail/templates', 'templates'),
+    //     ],
+    //   }),
+    //   environment: {
+    //     EMAIL_TRACKING_TABLE: props.emailTrackingTable.tableName,
+    //     KEY_ID: customSenderKmsKey.keyId,
+    //     KEY_ARN: customSenderKmsKey.keyArn,
+    //     SES_ENABLED: String(infraEnv.sesEnabled),
+    //     SES_FROM_EMAIL: infraEnv.sesFromEmail ?? '',
+    //     SES_VERIFIED_RECIPIENTS: infraEnv.sesVerifiedRecipients.join(','),
+    //     SES_CONFIGURATION_SET_NAME: infraEnv.sesConfigurationSetName ?? '',
+    //   },
+    // })
+    // props.emailTrackingTable.grantReadWriteData(this.customEmailSenderHandler)
+    // customSenderKmsKey.grantDecrypt(this.customEmailSenderHandler)
+    // this.userPool.addTrigger(
+    //   cognito.UserPoolOperation.CUSTOM_EMAIL_SENDER,
+    //   this.customEmailSenderHandler,
+    // )
 
     this.preTokenGenerationHandler = new nodejs.NodejsFunction(this, 'PreTokenGenerationHandler', {
       runtime: lambda.Runtime.NODEJS_24_X,

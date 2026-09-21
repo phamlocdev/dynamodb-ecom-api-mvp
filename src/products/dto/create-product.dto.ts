@@ -48,6 +48,17 @@ export class CreateProductDto {
   @Min(1)
   price!: number
 
+  @ApiPropertyOptional({
+    example: 25,
+    default: 0,
+    description: 'Initial available stock created with the product inventory row.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  availableQuantity?: number
+
   @ApiPropertyOptional({ example: 'https://images.example.com/headphones.jpg' })
   @IsOptional()
   @Transform(trimString)
