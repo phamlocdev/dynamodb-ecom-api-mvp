@@ -54,7 +54,7 @@ export class ProductsController {
   }
 
   @Get()
-  // @Public()
+  @Public()
   @RequirePermissions(Permission.PRODUCTS_READ)
   @ApiOperation({
     summary: 'List products',

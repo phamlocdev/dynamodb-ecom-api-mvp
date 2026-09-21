@@ -51,7 +51,8 @@ export class ServerStack extends cdk.Stack {
       emailTrackingTable: data.emailTrackingTable,
     })
     notification.grantSendEmail(auth.postConfirmationHandler)
-    notification.grantSendEmail(auth.customEmailSenderHandler)
+    // Uncomment when re-enabling CUSTOM_EMAIL_SENDER.
+    // notification.grantSendEmail(auth.customEmailSenderHandler)
 
     const apiLambda = new LambdaApiConstruct(this, 'ApiLambda', {
       productsTable: data.productsTable,
@@ -150,6 +151,18 @@ export class ServerStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'MediaBucketName', {
       value: storage.mediaBucket.bucketName,
+    })
+
+    new cdk.CfnOutput(this, 'MediaDistributionId', {
+      value: storage.mediaDistribution.distributionId,
+    })
+
+    new cdk.CfnOutput(this, 'MediaDistributionDomainName', {
+      value: storage.mediaDistribution.distributionDomainName,
+    })
+
+    new cdk.CfnOutput(this, 'MediaPublicBaseUrl', {
+      value: `https://${storage.mediaDistribution.distributionDomainName}`,
     })
   }
 }

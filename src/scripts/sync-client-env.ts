@@ -13,6 +13,7 @@ async function main(): Promise<void> {
   const outputs = getAwsOutputs()
   const clientEnvPath = path.resolve(serverRoot, '..', 'client', '.env')
   const apiGatewayBaseUrl = getResolvedApiGatewayUrl()
+  const mediaPublicBaseUrl = outputs.MediaPublicBaseUrl ?? ''
 
   const nextEnv = {
     NEXT_PUBLIC_API_GATEWAY_BASE_URL: outputs.ApiGatewayUrl ?? '',
@@ -43,19 +44,31 @@ async function main(): Promise<void> {
   ].join('\n')
 
   fs.writeFileSync(clientEnvPath, fileContents, 'utf8')
-  syncServerEnvFile(envFilePath, apiGatewayBaseUrl)
+  syncServerEnvFile(envFilePath, apiGatewayBaseUrl, mediaPublicBaseUrl)
   console.log(`Synced client env to ${clientEnvPath}.`)
 }
 
-function syncServerEnvFile(envFilePath: string, apiGatewayBaseUrl: string): void {
+function syncServerEnvFile(
+  envFilePath: string,
+  apiGatewayBaseUrl: string,
+  mediaPublicBaseUrl: string,
+): void {
+  if (!mediaPublicBaseUrl) {
+    throw new Error('Cannot sync MEDIA_PUBLIC_BASE_URL because MediaPublicBaseUrl is missing.')
+  }
+
   const envContent = fs.readFileSync(envFilePath, 'utf8')
   const nextReturnUrl = `${apiGatewayBaseUrl}/payments/vnpay/return`
   const nextIpnUrl = `${apiGatewayBaseUrl}/payments/vnpay/ipn`
 
   const updated = upsertEnvVar(
-    upsertEnvVar(envContent, 'VNPAY_RETURN_URL', nextReturnUrl),
-    'VNPAY_IPN_URL',
-    nextIpnUrl,
+    upsertEnvVar(
+      upsertEnvVar(envContent, 'VNPAY_RETURN_URL', nextReturnUrl),
+      'VNPAY_IPN_URL',
+      nextIpnUrl,
+    ),
+    'MEDIA_PUBLIC_BASE_URL',
+    mediaPublicBaseUrl,
   )
 
   fs.writeFileSync(envFilePath, updated, 'utf8')

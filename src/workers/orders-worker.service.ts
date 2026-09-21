@@ -131,6 +131,7 @@ export class OrdersWorkerService {
     }
 
     const reservedItems: ReservedInventoryItem[] = []
+    let reservationSucceeded = false
 
     try {
       const productSnapshots: Array<{ item: (typeof cartItems)[number]; product: Product }> = []
@@ -166,6 +167,7 @@ export class OrdersWorkerService {
 
       const totalAmount = orderItems.reduce((total, item) => total + item.lineTotal, 0)
       await this.ordersService.markReserved(order.orderId, totalAmount)
+      reservationSucceeded = true
     } catch (error) {
       const failureReason = error instanceof Error ? error.message : 'Failed to process order.'
 
@@ -183,6 +185,10 @@ export class OrdersWorkerService {
       if (!(error instanceof ConflictException)) {
         throw error
       }
+    }
+
+    if (reservationSucceeded) {
+      await this.cartsService.markExpired(cart)
     }
   }
 }

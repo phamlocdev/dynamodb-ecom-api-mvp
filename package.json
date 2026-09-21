@@ -20,6 +20,7 @@
     "seed:all": "npm run seed:catalog && npm run seed:users",
     "simulate:oversell": "npx ts-node src/scripts/simulate-oversell.ts",
     "test:notification-retry": "npx ts-node src/scripts/test-notification-retry-flows.ts",
+    "seo:backfill:products": "npx ts-node src/scripts/backfill-product-seo-pages.ts",
     "client:env:sync": "npx ts-node src/scripts/sync-client-env.ts",
     "client:hosting:env:sync": "npx ts-node src/scripts/sync-client-hosting-env.ts",
     "client:hosting:env:sync:optional": "npx ts-node src/scripts/sync-client-hosting-env.ts --optional",

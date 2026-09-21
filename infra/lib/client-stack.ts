@@ -35,6 +35,7 @@ export class ClientStack extends cdk.Stack {
       'ProductEventsBus',
       env.orderEventsBusName,
     )
+    const mediaPublicBaseUrl = requireEnvValue(env.mediaPublicBaseUrl, 'MEDIA_PUBLIC_BASE_URL')
 
     const siteBucket = new s3.Bucket(this, 'ClientSiteBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -96,6 +97,7 @@ export class ClientStack extends cdk.Stack {
         CLIENT_SITE_BUCKET: siteBucket.bucketName,
         CLIENT_DISTRIBUTION_ID: distribution.distributionId,
         CLIENT_BASE_URL: `https://${distribution.distributionDomainName}`,
+        MEDIA_PUBLIC_BASE_URL: mediaPublicBaseUrl,
         PRODUCT_TEMPLATE_KEY: 'products/__template/index.html',
       },
     })
@@ -147,4 +149,12 @@ export class ClientStack extends cdk.Stack {
       value: `https://${distribution.distributionDomainName}`,
     })
   }
+}
+
+function requireEnvValue(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(`${name} is required. Run npm run infra:deploy before deploying ClientDevStack.`)
+  }
+
+  return value
 }

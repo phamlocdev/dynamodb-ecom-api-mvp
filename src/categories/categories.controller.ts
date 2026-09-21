@@ -55,7 +55,7 @@ export class CategoriesController {
   }
 
   @Get()
-  // @Public()
+  @Public()
   @RequirePermissions(Permission.CATEGORIES_READ)
   @ApiOperation({ summary: 'List categories' })
   @ApiOkResponse({ type: PaginatedCategoryResponseDto })
