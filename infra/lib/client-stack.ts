@@ -1,4 +1,5 @@
 import * as path from 'path'
+import * as fs from 'fs'
 import * as cdk from 'aws-cdk-lib'
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront'
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins'
@@ -10,6 +11,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs'
 import * as s3 from 'aws-cdk-lib/aws-s3'
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment'
+import { transformSync } from 'esbuild'
 import { Construct } from 'constructs'
 import { getAwsInfraEnv } from './config/env'
 import {
@@ -24,12 +26,14 @@ export class ClientStack extends cdk.Stack {
 
     const env = getAwsInfraEnv()
     const clientOutPath = path.resolve(__dirname, '..', '..', '..', 'client', 'out')
-    const rewriteHandlerPath = path.resolve(__dirname, '..', 'lambda', 'client-rewrite-handler')
-    const productsTable = dynamodb.Table.fromTableName(
-      this,
-      'ProductsTable',
-      env.productsTableName,
+    const rewriteHandlerPath = path.resolve(
+      __dirname,
+      '..',
+      'lambda',
+      'client-rewrite-handler',
+      'index.ts',
     )
+    const productsTable = dynamodb.Table.fromTableName(this, 'ProductsTable', env.productsTableName)
     const productEventsBus = events.EventBus.fromEventBusName(
       this,
       'ProductEventsBus',
@@ -45,10 +49,9 @@ export class ClientStack extends cdk.Stack {
       enforceSSL: true,
     })
 
-    const rewriteFunction = new cloudfront.experimental.EdgeFunction(this, 'RewriteFunction', {
-      runtime: lambda.Runtime.NODEJS_22_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset(rewriteHandlerPath),
+    const rewriteFunction = new cloudfront.Function(this, 'RewriteFunction', {
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline(buildCloudFrontFunctionCode(rewriteHandlerPath)),
     })
 
     const origin = origins.S3BucketOrigin.withOriginAccessControl(siteBucket)
@@ -60,24 +63,24 @@ export class ClientStack extends cdk.Stack {
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
         cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
         compress: true,
-        edgeLambdas: [
+        functionAssociations: [
           {
-            functionVersion: rewriteFunction.currentVersion,
-            eventType: cloudfront.LambdaEdgeEventType.ORIGIN_REQUEST,
+            function: rewriteFunction,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
           },
         ],
       },
       errorResponses: [
         {
           httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: '/products/__fallback/index.html',
+          responseHttpStatus: 404,
+          responsePagePath: '/404.html',
           ttl: cdk.Duration.seconds(0),
         },
         {
           httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: '/products/__fallback/index.html',
+          responseHttpStatus: 404,
+          responsePagePath: '/404.html',
           ttl: cdk.Duration.seconds(0),
         },
       ],
@@ -151,9 +154,22 @@ export class ClientStack extends cdk.Stack {
   }
 }
 
+function buildCloudFrontFunctionCode(entryPath: string): string {
+  const source = fs.readFileSync(entryPath, 'utf8')
+  const result = transformSync(source, {
+    loader: 'ts',
+    target: 'es2020',
+    minify: true,
+  })
+
+  return result.code
+}
+
 function requireEnvValue(value: string | undefined, name: string): string {
   if (!value) {
-    throw new Error(`${name} is required. Run npm run infra:deploy before deploying ClientDevStack.`)
+    throw new Error(
+      `${name} is required. Run npm run infra:deploy before deploying ClientDevStack.`,
+    )
   }
 
   return value
